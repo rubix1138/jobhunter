@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  @page { margin: 0.65in 0.75in; size: letter; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 10.5pt;
+    line-height: 1.5;
+    color: #1a1a1a;
+  }
+
+  /* ── Header ── */
+  .sender h1 {
+    font-size: 20pt;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    color: #0f2847;
+    margin-bottom: 3px;
+  }
+  .sender .contact {
+    font-size: 9.5pt;
+    color: #555;
+    margin-bottom: 6px;
+  }
+  .sender .contact a { color: #0f2847; text-decoration: none; }
+
+  .accent-rule {
+    border: none;
+    border-top: 2.5px solid #0f2847;
+    margin: 7px 0 18px 0;
+  }
+
+  .date { color: #555; margin-bottom: 18px; font-size: 10pt; }
+
+  .recipient { margin-bottom: 20px; font-size: 10.5pt; }
+  .recipient strong { display: block; font-weight: 600; color: #0f2847; }
+
+  .salutation { margin-bottom: 14px; font-size: 10.5pt; }
+
+  p { margin-bottom: 13px; font-size: 10.5pt; line-height: 1.5; }
+
+  .signature { margin-top: 24px; font-size: 10.5pt; }
+  .signature strong { color: #0f2847; }
+</style>
+</head>
+<body>
+
+<div class="sender">
+  <h1>{{ personal.first_name }} {{ personal.last_name }}</h1>
+  <div class="contact">
+    {{ personal.location }}
+    {% if personal.phone %}&nbsp;·&nbsp;{{ personal.phone }}{% endif %}
+    &nbsp;·&nbsp;<a href="mailto:{{ personal.email }}">{{ personal.email }}</a>
+    {% if personal.linkedin_url %}&nbsp;·&nbsp;<a href="{{ personal.linkedin_url }}">{{ personal.linkedin_url }}</a>{% endif %}
+  </div>
+</div>
+<div class="accent-rule"></div>
+
+<div class="date">{{ date }}</div>
+
+<div class="recipient">
+  <strong>Hiring Manager</strong>
+  {{ company }}
+</div>
+
+<p class="salutation">Dear Hiring Manager,</p>
+
+<p>{{ opening_paragraph }}</p>
+
+{% if body_paragraph_1 %}<p>{{ body_paragraph_1 }}</p>{% endif %}
+
+{% if body_paragraph_2 %}<p>{{ body_paragraph_2 }}</p>{% endif %}
+
+<p>{{ closing_paragraph }}</p>
+
+<div class="signature">
+  <p>Sincerely,<br><br>
+  <strong>{{ personal.first_name }} {{ personal.last_name }}</strong></p>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  @page { margin: 0.55in 0.65in; size: letter; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 10.5pt;
+    line-height: 1.35;
+    color: #1a1a1a;
+  }
+
+  /* ── Header ── */
+  h1 {
+    font-size: 24pt;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    color: #0f2847;
+  }
+  .tagline {
+    font-size: 11pt;
+    color: #374151;
+    font-style: italic;
+    margin-top: 3px;
+    margin-bottom: 5px;
+  }
+  .contact {
+    font-size: 9.5pt;
+    color: #555;
+    margin-bottom: 2px;
+  }
+  .contact a { color: #0f2847; text-decoration: none; }
+
+  /* ── Dividers ── */
+  .accent-rule {
+    border: none;
+    border-top: 2.5px solid #0f2847;
+    margin: 7px 0 9px 0;
+  }
+  hr {
+    border: none;
+    border-top: 0.75px solid #cbd5e1;
+    margin: 7px 0 8px 0;
+  }
+
+  /* ── Section headings ── */
+  h2 {
+    font-family: Georgia, serif;
+    font-size: 9.5pt;
+    text-transform: uppercase;
+    letter-spacing: 1.4px;
+    color: #0f2847;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+
+  /* ── Summary ── */
+  .summary {
+    font-size: 10.5pt;
+    line-height: 1.45;
+    color: #1a1a1a;
+    margin-bottom: 2px;
+  }
+
+  /* ── Core Competencies ── */
+  .competencies {
+    column-count: 3;
+    column-gap: 16px;
+    margin-bottom: 2px;
+  }
+  .competency {
+    font-size: 9.5pt;
+    color: #1a1a1a;
+    margin-bottom: 3px;
+    break-inside: avoid;
+    padding-left: 11px;
+    text-indent: -11px;
+  }
+  .competency::before { content: "▪ "; color: #0f2847; }
+
+  /* ── Experience ── */
+  .job { margin-bottom: 11px; page-break-inside: avoid; }
+  .job-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 1px;
+  }
+  .job-left { flex: 1; }
+  .job-title { font-weight: 700; font-size: 10.5pt; }
+  .job-company { color: #0f2847; font-weight: 600; }
+  .job-sep { color: #9ca3af; }
+  .job-meta {
+    font-size: 9pt;
+    color: #6b7280;
+    text-align: right;
+    white-space: nowrap;
+    padding-left: 12px;
+  }
+  ul { margin-left: 13px; margin-top: 3px; widows: 2; orphans: 2; }
+  ul li {
+    margin-bottom: 3pt;
+    font-size: 10pt;
+    line-height: 1.15;
+  }
+  .tech {
+    font-size: 8.5pt;
+    color: #6b7280;
+    margin-top: 3px;
+    font-style: italic;
+  }
+
+  /* ── Education ── */
+  .edu-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 4px;
+    font-size: 10pt;
+  }
+  .edu-degree { font-weight: 600; }
+  .edu-school { color: #374151; }
+  .edu-date { font-size: 9pt; color: #6b7280; white-space: nowrap; padding-left: 10px; }
+
+  /* ── Certifications ── */
+  .cert-grid { column-count: 2; column-gap: 20px; }
+  .cert-item {
+    font-size: 9.5pt;
+    margin-bottom: 2px;
+    break-inside: avoid;
+    padding-left: 11px;
+    text-indent: -11px;
+  }
+  .cert-item::before { content: "▪ "; color: #0f2847; }
+
+  /* ── Publications & Speaking ── */
+  .pub-item {
+    font-size: 9.5pt;
+    margin-bottom: 3px;
+    color: #1a1a1a;
+    padding-left: 14px;
+    text-indent: -14px;
+  }
+  .pub-item::before { content: "▪ "; color: #0f2847; }
+  .speak-grid { column-count: 2; column-gap: 20px; }
+  .speak-item {
+    font-size: 9.5pt;
+    margin-bottom: 2px;
+    break-inside: avoid;
+    padding-left: 11px;
+    text-indent: -11px;
+  }
+  .speak-item::before { content: "▪ "; color: #0f2847; }
+</style>
+</head>
+<body>
+
+<!-- ── Header ── -->
+<h1>{{ personal.first_name }} {{ personal.last_name }}</h1>
+{% if tagline %}<div class="tagline">{{ tagline }}</div>{% endif %}
+<div class="contact">
+  {{ personal.location }}
+  {% if personal.phone %}&nbsp;·&nbsp;{{ personal.phone }}{% endif %}
+  &nbsp;·&nbsp;<a href="mailto:{{ personal.email }}">{{ personal.email }}</a>
+  {% if personal.linkedin_url %}&nbsp;·&nbsp;<a href="{{ personal.linkedin_url }}">{{ personal.linkedin_url }}</a>{% endif %}
+  {% if personal.github_url %}&nbsp;·&nbsp;<a href="{{ personal.github_url }}">{{ personal.github_url }}</a>{% endif %}
+</div>
+<div class="accent-rule"></div>
+
+<!-- ── Summary ── -->
+<h2>Executive Profile</h2>
+<p class="summary">{{ tailored_summary }}</p>
+
+<!-- ── Core Competencies ── -->
+{% if core_competencies %}
+<hr>
+<h2>Core Competencies</h2>
+<div class="competencies">
+  {% for c in core_competencies %}<div class="competency">{{ c }}</div>{% endfor %}
+</div>
+{% endif %}
+
+<hr>
+
+<!-- ── Experience ── -->
+<h2>Professional Experience</h2>
+{% for job in experience %}
+<div class="job">
+  <div class="job-header">
+    <div class="job-left">
+      <span class="job-title">{{ job.title }}</span>
+      <span class="job-sep">&nbsp;·&nbsp;</span>
+      <span class="job-company">{{ job.company }}</span>
+    </div>
+    <div class="job-meta">
+      {{ job.start_date }} – {{ job.end_date }}
+      {% if job.location %}&nbsp;·&nbsp;{{ job.location }}{% endif %}
+    </div>
+  </div>
+  {% if job.achievements %}
+  <ul>
+    {% for ach in job.achievements %}<li>{{ ach }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+  {% if job.technologies and job.technologies|length > 0 %}
+  <p class="tech">{{ job.technologies | join(' · ') }}</p>
+  {% endif %}
+</div>
+{% endfor %}
+
+<!-- ── Education ── -->
+{% if education %}
+<hr>
+<h2>Education</h2>
+{% for edu in education %}
+<div class="edu-item">
+  <div>
+    <span class="edu-degree">{{ edu.degree }}</span><br>
+    <span class="edu-school">{{ edu.institution }}</span>
+  </div>
+  <div class="edu-date">{{ edu.graduation_date }}</div>
+</div>
+{% endfor %}
+{% endif %}
+
+<!-- ── Certifications ── -->
+{% if top_certifications %}
+<hr>
+<h2>Selected Certifications</h2>
+<div class="cert-grid">
+  {% for cert in top_certifications %}<div class="cert-item">{{ cert }}</div>{% endfor %}
+</div>
+{% endif %}
+
+<!-- ── Publications ── -->
+{% if publications %}
+<hr>
+<h2>Selected Publications</h2>
+{% for pub in publications %}
+<div class="pub-item"><em>{{ pub.title }}</em> — {{ pub.publisher }}, {{ pub.year }}</div>
+{% endfor %}
+{% endif %}
+
+<!-- ── Speaking ── -->
+{% if speaking %}
+<hr>
+<h2>Selected Speaking Engagements</h2>
+<div class="speak-grid">
+  {% for s in speaking %}<div class="speak-item">{{ s.title }} — {{ s.venue }} ({{ s.year }})</div>{% endfor %}
+</div>
+{% endif %}
+
+</body>
+</html>

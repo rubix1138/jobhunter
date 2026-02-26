@@ -1,0 +1,775 @@
+personal:
+  first_name: "Xavier"
+  last_name: "Ashe"
+  email: "xavier.ashe.jobs@gmail.com"                   # Dedicated Gmail inbox for job applications
+  personal_email: "xavier@ashe.com"
+  phone: "404-909-3846"
+  location: "Atlanta, GA"
+  linkedin_url: "https://www.linkedin.com/in/xavierashe/"
+  github_url: "https://github.com/rubix1138"
+  willing_to_relocate: false
+  work_authorization: "US Citizen"
+
+summary: |
+  Cybersecurity executive with 31+ years of progressive experience spanning hands-on engineering,
+  consulting, entrepreneurship, and executive leadership. Currently SVP of Security Operations and
+  Technology at Truist (6th largest US bank), leading hundreds of engineers across incident response,
+  security engineering, network security, and cyber operations. Built and scaled multiple security
+  programs from scratch, including a 24/5 Cyber Incident Response Team, a Production Support Center
+  of Excellence serving 300+ engineers, and a full insourcing of cyber technology from a managed
+  security provider.
+
+  Career arc progresses from network administration and systems engineering through IBM global
+  consulting, security startup leadership, CISO roles, and Fortune 500 executive management.
+  Deep expertise in security operations, zero-trust architecture, segmentation, cloud security,
+  DevSecOps, and IT hygiene. Published author of IBM Redbooks and a Gartner segmentation playbook.
+  Prolific speaker at DefCon, BSides, DragonCon (EFF track), BlackHat, RSA, Splunk .conf, and
+  DoD Cyber Crime Conference. Active in the security community as Chair of TAG Information Security
+  Society and advisor to security startups. Holds CISSP, CISM, and numerous technical certifications.
+
+experience:
+  - company: "Truist Financial Corporation"
+    title: "Senior Vice President, Security Operations and Technology"
+    start_date: "2018-06"
+    end_date: "present"
+    location: "Atlanta, GA"
+    description: |
+      Truist is the 6th largest US bank, formed by the merger of SunTrust and BB&T. Initially hired
+      to build a dedicated Cyber Incident Response Team from scratch, then expanded to lead multiple
+      security functions across the enterprise. Built and led several teams including Security Engineering,
+      Cyber Operations Production Support, Countermeasures, Network Security Engineering, Firewall Policy
+      Engineering, and served as Cyber lead for Data Center Migration. Managed multimillion-dollar budgets
+      and hundreds of engineers.
+    achievements:
+      - "Built a full 24/5 Cyber Incident Response Team (CIRT) from scratch within 5 months, including all supporting processes and technology"
+      - "Replaced nearly all cyber technology as part of insourcing from a managed security provider to 100% in-house operations (Head of Security Engineering)"
+      - "Created the first cyber production support team post-merger; responsible for support and operations of all cyber tooling"
+      - "Led the countermeasures team that maintained security tooling policy, intel updates, and exception servicing"
+      - "Ran the engineering team for IPS/IDS, Firewall, SASE, and VPN as Head of Network Security Engineering"
+      - "Led cyber security for data center migration while Truist shut down three data centers and migrated to a new facility"
+      - "Converted Production Support program into a Center of Excellence supporting 300+ engineers"
+      - "Managed a dedicated team for enterprise firewall policy engineering"
+      - "Awarded the Truist Performance Award in 2023, recognizing the top 1% of the entire company"
+    technologies:
+      - "Splunk (including Enterprise Security)"
+      - "QRadar"
+      - "CrowdStrike"
+      - "Tanium"
+      - "BigFix"
+      - "Qualys"
+      - "ServiceNow"
+      - "Zscaler"
+      - "IPS/IDS"
+      - "Firewall (next-gen)"
+      - "SASE"
+      - "VPN"
+
+  - company: "Technology Association of Georgia (TAG)"
+    title: "Chair, Board of Directors - Information Security Society"
+    start_date: "2021-04"
+    end_date: "present"
+    location: "Atlanta, GA"
+    description: |
+      TAG is an industry association dedicated to advancing Georgia's technology ecosystem. As Chair
+      of the board (previously Vice Chair), led the various programs the Infosec Society hosted,
+      including a mentorship program, technical trainings, and social events.
+    achievements:
+      - "Led a mentorship program connecting emerging security professionals with experienced leaders"
+      - "Organized technical trainings and social events for the Georgia security community"
+      - "Promoted security awareness and community engagement across Georgia's technology ecosystem"
+    technologies: []
+
+  - company: "Gartner"
+    title: "Segmentation Subject Matter Expert (Consultant)"
+    start_date: "2018-01"
+    end_date: "2018-06"
+    location: "Remote / Various"
+    description: |
+      Gartner Consulting engagement as the subject matter expert in reducing risk via segmentation.
+      Special focus on NotPetya and similar threats. Interviewed large companies in the manufacturing
+      industry to capture best practices and lessons learned.
+    achievements:
+      - "Authored a 250+ page segmentation playbook delivered to multiple Gartner consulting customers"
+      - "Covered network segmentation (traditional and microsegmentation), identity segmentation, data classification, memory segmentation and protection, and process/workflow segmentation"
+      - "Published 'Reducing Risk with Segmentation' as a Gartner Playbook (2018)"
+    technologies:
+      - "Microsegmentation"
+      - "Network Segmentation"
+      - "Software-Defined Perimeter (SDP)"
+      - "Zero Trust Architecture"
+
+  - company: "ActiveHealth Management (Aetna subsidiary)"
+    title: "Director of Security (CISO)"
+    start_date: "2017-01"
+    end_date: "2017-12"
+    location: "New York, NY"
+    description: |
+      ActiveHealth Management is a healthcare technology company with over 1,500 employees in the US
+      and India serving over 20 million people. As CISO, led all new security initiatives as product
+      owner and architect. Reported directly to executive leadership and managed the full security
+      program.
+    achievements:
+      - "Designed and implemented a security analytics program and SIEM from scratch"
+      - "Deployed static and dynamic code analysis (SAST/DAST) across the development organization"
+      - "Led migration from traditional AV to next-generation endpoint protection"
+      - "Built a central security service for application identity and authentication"
+      - "Migrated east-west business communications to encrypted channels"
+      - "Oversaw NIST 800-53 remediation, SOC2 preassessment, remedied outstanding controls, and completed full SOC2 audit"
+      - "Built threat hunting capabilities and improved incident response processes and tooling"
+      - "Revamped IT Hygiene: improved asset identification, implemented ongoing vulnerability scans, and shortened patch cycles with DevOps and ServerOps teams"
+      - "Implemented network segmentation and consolidated security workflows into SIEM"
+    technologies:
+      - "Tanium"
+      - "SIEM"
+      - "SAST/DAST"
+      - "Next-Gen Endpoint Protection"
+      - "NIST 800-53"
+      - "SOC2"
+      - "Vulnerability Management"
+
+  - company: "Xavier Enterprises, LLC"
+    title: "Founder / CEO"
+    start_date: "2015-11"
+    end_date: "present"
+    location: "Atlanta, GA"
+    description: |
+      Consulting practice providing information security, network security, industry analysis,
+      entrepreneurship consulting, and helping startups bring ideas to market. Projects include
+      next-gen firewall product evaluation, purple team penetration testing, incident response,
+      security program management, and security architecture.
+    achievements:
+      - "Consulted for multiple security startups on product evaluation and market strategy"
+      - "Conducted purple team penetration testing engagements"
+      - "Provided security architecture and incident response consulting"
+    technologies:
+      - "Metasploit"
+      - "Nessus"
+      - "Various firewall platforms"
+      - "Penetration testing tools"
+
+  - company: "Drawbridge Networks"
+    title: "Executive Vice President / VP, Customer Experience"
+    start_date: "2015-03"
+    end_date: "2017-01"
+    location: "Atlanta, GA"
+    description: |
+      Drawbridge Networks was a cybersecurity startup (founded 2014) that brought disruptive
+      microsegmentation technology to market without requiring virtual networking or SDN.
+      First employee hired. Responsible for the entire customer lifecycle from sales to
+      implementation. Drawbridge had a successful exit, acquired by OPAQ Networks, Inc.
+    achievements:
+      - "First hire at the company; built customer experience function from zero"
+      - "Oversaw inside sales, sales engineering, research, and support as part of a lean startup team"
+      - "Worked directly with every customer and beta participant to solve security problems"
+      - "Authored papers and presented at conferences on the need for network microsegmentation"
+      - "Instrumental in bringing the first microsegmentation solution for servers and workstations to market"
+      - "Company had a successful exit (acquired by OPAQ Networks, Inc.)"
+    technologies:
+      - "Microsegmentation"
+      - "Network Security"
+      - "Software-Defined Perimeter"
+
+  - company: "Bit9 (now Carbon Black / VMware)"
+    title: "Sr. Manager, Strategic Account Group & Customer Success Team"
+    start_date: "2013-02"
+    end_date: "2015-03"
+    location: "Waltham, MA (Remote)"
+    description: |
+      Bit9 (now Carbon Black) is an information security vendor providing next-gen AV, enterprise
+      threat detection and response (EDR), and application control/whitelisting solutions. Held
+      multiple roles: People Manager, Services Manager, Technical Account Manager, Services Sales,
+      and Renewal Sales.
+    achievements:
+      - "Started as Client Partner; promoted to lead the Strategic Account Group in less than 9 months"
+      - "Built and led the newly branded Customer Success Team, expanding red-carpet treatment to the entire customer base"
+      - "Team consisted of Customer Success Managers and Customer Success Engineers focused on proactive customer value"
+      - "Named professional services MVP for 2013"
+    technologies:
+      - "Carbon Black (Cb Protection, Cb Response)"
+      - "EDR"
+      - "Application Whitelisting"
+      - "Next-Gen Antivirus"
+
+  - company: "IBM Security Systems"
+    title: "Senior Managing Consultant / Security Architect"
+    start_date: "2005-12"
+    end_date: "2013-01"
+    location: "Atlanta, GA (Global travel)"
+    description: |
+      Senior Managing Consultant in IBM Software Services Security (ISSS), specializing in Security
+      Intelligence and Data Protection products. Worldwide Subject Matter Expert on IBM's security
+      intelligence and threat prevention product suite. Commonly tapped for high-profile deployments,
+      customer satisfaction recovery, and complex multi-product solution architecture. Also served as
+      lead architect for internal projects with IBM's CIO office. Participated in the IBM General
+      Management Leadership Development Program (2-year MBA equivalent, 2006-2008).
+    achievements:
+      - "Worldwide SME for IBM Security Intelligence products, deploying solutions across global customers"
+      - "Architected complex multi-product security solutions for pre-sales and post-sales engagements"
+      - "Led security architecture for IBM CIO's internal projects"
+      - "Performed Mergers & Acquisitions due diligence from a security perspective"
+      - "Published 5 IBM Redbooks/Redpapers on security architecture and product migration"
+      - "Presented at IBM Pulse, DoD Cyber Crime Conference, Netcool User Symposium, and EMEA conferences"
+      - "Completed IBM General Management Leadership Development Program (2006-2008, MBA equivalent)"
+      - "Industries served: Cloud/MSP, Healthcare, Telecom, Banking, Financial Services, Government, Higher Education, Energy, Media & Entertainment"
+    technologies:
+      - "QRadar"
+      - "QRisk Manager"
+      - "IBM BigFix"
+      - "Tivoli Security Operations Manager (TSOM)"
+      - "Tivoli Compliance Insight Manager (TCIM)"
+      - "Tivoli Security Information and Event Manager (TSIEM)"
+      - "Tivoli Directory Integrator (TDI)"
+      - "Tivoli Enterprise Log Manager (TELM)"
+      - "Tivoli Endpoint Manager (TEM)"
+      - "Proventia SiteProtector"
+      - "Network IPS"
+      - "Security Server Protection"
+      - "IBM AppScan"
+
+  - company: "Microtek Systems, Inc."
+    title: "Director of Security Solutions"
+    start_date: "2005-02"
+    end_date: "2005-12"
+    location: "Milwaukee, WI / Atlanta, GA"
+    description: |
+      Microtek Systems (subsidiary of Entrada Networks) was a system integrator and reseller
+      specializing in information security and document management. Responsible for business
+      development and solution delivery in the information security division.
+    achievements:
+      - "Designed all security consulting offerings: Risk Assessment, Penetration Testing, Firewall Design, Compliance Assistance"
+      - "Led Microtek to a series of record security sales months after joining"
+      - "Architected complex security and network designs for customers"
+      - "Managed partnerships with Juniper, Fortinet, Qualys, AirTight, Patchlink, Solutionary, and others"
+      - "Selected to open an Atlanta branch office before parent company closed"
+    technologies:
+      - "Juniper"
+      - "Fortinet"
+      - "Qualys"
+      - "AirTight Networks"
+      - "Patchlink"
+
+  - company: "SilverTrain, Inc."
+    title: "Practice Director, Security Consulting / Senior Infrastructure Consultant"
+    start_date: "2003-09"
+    end_date: "2005-06"
+    location: "Milwaukee, WI (100% travel)"
+    description: |
+      IT consulting and solution provider. Managed the security and IT infrastructure consulting
+      practice. Major project was the GE Medical broadband connectivity project — a nationwide VPN
+      rollout and HIPAA compliance project connecting medical scanners (CT, MRI, etc.) back to GE
+      over IPSEC and SSL VPN.
+    achievements:
+      - "Turned on more systems than any other Field Technician every quarter of the GE Medical project"
+      - "Trained most new field representatives due to high level of success"
+      - "Developed step-by-step field guides to assist new technicians and shorten training period"
+      - "Completed the GE project under budget and beyond expectation"
+      - "Configured VPN across Windows (NT, 2000, XP), Linux, IRIX, and Solaris platforms"
+      - "Assisted hospitals with VPN configuration and firewall troubleshooting across Cisco PIX, Netscreen, Checkpoint, Raptor, Cyberguard, and SecureZone"
+      - "Led additional projects: wireless WAN, Novell/Notes Help Desk, AD engineering, Group Policy, Exchange, VoIP, and datacenter moves"
+    technologies:
+      - "IPSEC VPN"
+      - "SSL VPN"
+      - "Cisco PIX"
+      - "Netscreen"
+      - "Checkpoint"
+      - "VMware"
+      - "Active Directory"
+      - "Exchange"
+      - "VoIP"
+
+  - company: "Sprint E|Solutions (Sprint Web Hosting)"
+    title: "Team Lead / Infrastructure Support Manager"
+    start_date: "2000-08"
+    end_date: "2003-09"
+    location: "Atlanta, GA"
+    description: |
+      Sprint's web hosting and collocation division, rated #2 in the industry. Managed a team of
+      Technical Support Analysts supporting n-tier distributed applications for high-profile customers
+      including Barnes & Noble, eBay, Home Depot, and FBI. Supported government contracts with
+      stringent security requirements.
+    achievements:
+      - "Co-engineered a nationwide 24-hour enterprise SNMP monitoring solution using Netcool, Sysedge, NetIQ, Open Nervecenter, CiscoWorks, Radware, and Compaq Insight Manager"
+      - "Awarded the 'Sprint Values Excellence' award for outstanding performance implementing the monitoring solution"
+      - "Developed a web-based training tracking portal using ASP, MS SQL, and IIS"
+      - "Authored and rewrote policies and procedures, increasing efficiency and lowering costs"
+      - "Designed and implemented secure document procedures for government contracts using PKI"
+      - "Collected forensic evidence after break-in attempts to aid FBI investigations"
+      - "Helped secure FBI.gov and tips.fbi.gov — among the most attacked websites on the internet"
+      - "Defended against the first major DDoS attack targeting eBay/Yahoo, restoring service within 4 hours and collecting forensic data that led to FBI arrests within one week"
+      - "Network Computing's Well Connected Award 2000: Best E-Commerce Host Service Provider"
+    technologies:
+      - "Netcool"
+      - "SNMP"
+      - "Windows 2000/NT"
+      - "Solaris"
+      - "Linux"
+      - "IIS"
+      - "iPlanet"
+      - "WebSphere"
+      - "Oracle"
+      - "SQL Server"
+      - "Citrix"
+      - "Remedy"
+      - "PKI"
+
+  - company: "Extreme Logic (acquired by HP)"
+    title: "Network Administrator / Systems Engineer / IT Director"
+    start_date: "1997-02"
+    end_date: "2000-08"
+    location: "Atlanta, GA"
+    description: |
+      Extreme Logic (formerly Omni Technology) was a Microsoft Certified Training & Education Center
+      (CTEC) and Solutions Provider. Responsible for the entire internal network including 6+
+      classrooms, branch offices, remote users, and a BackOffice server farm. Served as Project
+      Manager for most internal projects while also acting as lead engineer. Company was acquired by HP.
+    achievements:
+      - "Designed and implemented a national WAN using Nortel IPSEC VPN technology and Windows 2000 L2TP"
+      - "Tested, documented, and deployed Windows 2000 Server Beta, Exchange 2000 Beta, and SQL 2000 Beta as part of Microsoft's Rapid Deployment Program, giving direct feedback to Microsoft development teams"
+      - "Collaborated with Microsoft in writing the 'Active Directory Branch Office Planning Guide' published by Microsoft"
+      - "Authored security policies and implemented early IDS systems"
+      - "Engineered and administered Exchange from version 4.0 through Exchange 2000"
+      - "Co-founded MIDAS (Microsoft Internet Development Association)"
+      - "Microsoft MCSP Partner of the Year 1999 (Southeast District), Georgia CTEC Partner of the Year 1999, Microsoft Technology Impact Award 2000, MCSP Partner of the Year 2000 (North America)"
+    technologies:
+      - "Windows NT/2000 Server"
+      - "Active Directory"
+      - "Exchange 4.0 through 2000"
+      - "SQL Server"
+      - "Cisco routers/switches"
+      - "Nortel VPN"
+      - "IIS"
+      - "ASP"
+      - "VBScript/JScript"
+
+  - company: "Georgia Institute of Technology"
+    title: "Student Cluster Manager"
+    start_date: "1996-06"
+    end_date: "1998-02"
+    location: "Atlanta, GA"
+    description: |
+      Managed PC (NT 4.0) and Macintosh computer clusters used by students on a campus ATM network.
+    achievements:
+      - "Tested and implemented workstation imaging technology to maintain machine integrity"
+      - "Designed and implemented a Microsoft SMS 1.2 environment for NT clusters"
+      - "Designed new security policies and procedures to protect the campus network"
+    technologies:
+      - "Windows NT 4.0"
+      - "Microsoft SMS 1.2"
+      - "ATM Networking"
+      - "Macintosh"
+
+  - company: "Georgia Regional Hospital"
+    title: "Network Administrator / Computer Technician"
+    start_date: "1994-05"
+    end_date: "1996-06"
+    location: "Atlanta, GA"
+    description: |
+      Responsible for over 150 PCs and 100 Unix terminals on a 27-building medical campus.
+      Supported Windows for Workgroups, Windows 95, ProComm+, Lotus 1-2-3, and dBase 3.
+    achievements:
+      - "Implemented the first LAN in the hospital (initially over LANtastic, then migrated to NT 3.5)"
+      - "Deployed Windows for Workgroups across several hundred PCs to enable networking"
+      - "Project Manager for a fiber optic campus-wide WAN connecting 27 buildings"
+      - "Eliminated rampant computer virus infections and designed preventive processes"
+    technologies:
+      - "Windows NT 3.5"
+      - "LANtastic"
+      - "Fiber Optic WAN"
+      - "dBase III"
+      - "Unix terminals"
+
+  - company: "The Computer Doctor (PC Doctor)"
+    title: "Owner / PC Technician"
+    start_date: "1993-01"
+    end_date: "1994-05"
+    location: "Jonesboro, GA"
+    description: |
+      Founded and operated a home-based PC repair business. Repaired hardware and software problems
+      including OS installations, virus cleanup, troubleshooting faulty hardware, and performance tuning.
+    achievements:
+      - "Founded first business at a young age, providing PC repair services to local community"
+    technologies:
+      - "MS-DOS"
+      - "Windows 3.x"
+      - "PC Hardware"
+
+education:
+  - institution: "IBM General Management Leadership Development Program"
+    degree: "Leadership Development (MBA equivalent)"
+    graduation_date: "Jan 2009"
+    notes: "2-year program (2006-2008)"
+
+  - institution: "Georgia Institute of Technology"
+    degree: "Computer Engineering (Major), International Affairs (Minor)"
+    graduation_date: "1996-2001"
+    notes: |
+      Completed Co-op Program. Awarded GRHO Emerging Student Leader by Georgia Residence Hall
+      Organization (1997). Selected for Study Abroad program in the South Pacific. Active in
+      student organizations including Residence Hall Organization, Civitan. Co-op placements
+      included Georgia Regional Hospital and Georgia Tech cluster management.
+
+  - institution: "Mt. Zion High School"
+    degree: "College Prep"
+    graduation_date: "1996-06"
+    gpa: ""
+
+skills:
+  domains:
+    - name: "Security Operations"
+      details: "Threat Intelligence, Incident Response, SOC maturity assessment, MSSP, SOC architecture and process design, Threat Hunting"
+      years: 20
+      proficiency: "expert"
+    - name: "Cloud Security"
+      details: "CSABs, CISPAs, Hybrid Cloud, AWS, Azure, CNAPP"
+      years: 10
+      proficiency: "expert"
+    - name: "Segmentation and Zero-Trust"
+      details: "Network segmentation, Identity segmentation, Data classification, Microsegmentation, SDP"
+      years: 15
+      proficiency: "expert"
+    - name: "DevSecOps"
+      details: "Containers, Threat Modeling, SAST/DAST/IAST, RASP/WAF"
+      years: 8
+      proficiency: "advanced"
+    - name: "IT Hygiene"
+      details: "Asset Management, Vulnerability Management, Patch Management"
+      years: 20
+      proficiency: "expert"
+    - name: "Penetration Testing"
+      details: "Purple Team, Red Team support, Metasploit, Nessus"
+      years: 15
+      proficiency: "advanced"
+    - name: "Governance, Risk, and Compliance"
+      details: "NIST 800-53, SOC2, HIPAA, GLBA, SOX, PCI, GDPR"
+      years: 20
+      proficiency: "expert"
+    - name: "Executive Leadership"
+      details: "Multimillion-dollar budgets, 300+ engineer organizations, board-level communication, startup advisory"
+      years: 15
+      proficiency: "expert"
+
+  programming_languages:
+    - name: "Python"
+      years: 5
+      proficiency: "intermediate"
+    - name: "Shell Scripting (Bash)"
+      years: 25
+      proficiency: "advanced"
+    - name: "PowerShell"
+      years: 10
+      proficiency: "advanced"
+    - name: "Perl"
+      years: 10
+      proficiency: "intermediate"
+    - name: "JavaScript"
+      years: 10
+      proficiency: "intermediate"
+    - name: "PHP"
+      years: 5
+      proficiency: "intermediate"
+    - name: "Java"
+      years: 3
+      proficiency: "intermediate"
+    - name: "SQL (T-SQL, MySQL, Oracle, DB2, Postgres)"
+      years: 15
+      proficiency: "advanced"
+    - name: "VBScript/JScript/ASP"
+      years: 10
+      proficiency: "advanced"
+    - name: "ANSI C"
+      years: 3
+      proficiency: "intermediate"
+
+  security_products:
+    - "Splunk (including Enterprise Security)"
+    - "QRadar / QRisk Manager"
+    - "CrowdStrike"
+    - "Carbon Black (Cb Protection, Cb Response)"
+    - "Tanium"
+    - "IBM BigFix"
+    - "Qualys"
+    - "Nessus"
+    - "Metasploit"
+    - "Checkmarx"
+    - "SonarQube"
+    - "ServiceNow (SecOps)"
+    - "DataDog"
+    - "Zscaler"
+    - "Secret Server"
+    - "IBM AppScan"
+    - "Proventia SiteProtector / Network IPS"
+    - "Tivoli TSOM / TCIM / TSIEM / TDI / TELM / TEM"
+
+  infrastructure_and_platforms:
+    - "AWS"
+    - "Azure"
+    - "Hybrid Cloud"
+    - "VMware"
+    - "Docker / Containers"
+    - "Cisco (Routers, Switches, PIX, ASA)"
+    - "Juniper"
+    - "Fortinet"
+    - "Checkpoint"
+    - "Palo Alto"
+    - "IPS/IDS"
+    - "SASE"
+    - "VPN (IPSEC, SSL, L2TP)"
+    - "Active Directory"
+    - "Exchange (4.0 through modern)"
+    - "Windows Server (NT through modern)"
+    - "Linux (Red Hat, SUSE, Ubuntu)"
+    - "Solaris"
+    - "AIX"
+
+  other_tools:
+    - "Remedy"
+    - "Netcool"
+    - "Crystal Reports"
+    - "Visio"
+    - "SNMP monitoring (Sysedge, NetIQ, CiscoWorks)"
+    - "PKI"
+    - "Citrix"
+
+  certifications:
+    - name: "Certified Information Systems Security Professional (CISSP)"
+      issuer: "(ISC)²"
+      date: ""
+    - name: "Certified Information Security Manager (CISM)"
+      issuer: "ISACA"
+      date: ""
+    - name: "Cisco Certified Network Associate (CCNA)"
+      issuer: "Cisco"
+      date: ""
+    - name: "Microsoft Certified Systems Engineer (MCSE) - NT4 and Windows 2000"
+      issuer: "Microsoft"
+      date: ""
+    - name: "MCSE: Security Specialization (Windows 2000)"
+      issuer: "Microsoft"
+      date: ""
+    - name: "Microsoft Certified Professional + Internet (MCP+I)"
+      issuer: "Microsoft"
+      date: ""
+    - name: "ITIL Version 3 Foundations"
+      issuer: "Office of Government Commerce"
+      date: ""
+    - name: "Red Hat Certified System Administrator (RHCSA)"
+      issuer: "Red Hat"
+      date: ""
+    - name: "Sun Certified System Administrator"
+      issuer: "Sun Microsystems"
+      date: ""
+    - name: "IBM Certified SOA Associate"
+      issuer: "IBM"
+      date: ""
+    - name: "IBM Tivoli Compliance Insight Manager Certified"
+      issuer: "IBM"
+      date: ""
+    - name: "IBM Tivoli Endpoint Manager Certified"
+      issuer: "IBM"
+      date: ""
+    - name: "IBM BigFix Advanced Certified"
+      issuer: "IBM"
+      date: ""
+    - name: "IBM Certified Solution Advisor - Tivoli Security & Compliance Management"
+      issuer: "IBM"
+      date: ""
+    - name: "CompTIA A+"
+      issuer: "CompTIA"
+      date: ""
+    - name: "CompTIA Network+"
+      issuer: "CompTIA"
+      date: ""
+    - name: "CompTIA Security+"
+      issuer: "CompTIA"
+      date: ""
+
+publications:
+  - title: "Reducing Risk with Segmentation"
+    publisher: "Gartner Playbook"
+    year: 2018
+  - title: "Transitioning from Tivoli Security Operations Manager (TSOM) to IBM QRadar"
+    publisher: "IBM Redpapers"
+    year: 2012
+  - title: "IBM Security & Compliance Portfolio - Architecture and Best Practices"
+    publisher: "IBM Redbooks"
+    year: 2011
+  - title: "Understanding IT Perimeter Security"
+    publisher: "IBM Redbooks"
+    year: 2008
+  - title: "Security Framework in the Next Generation Network"
+    publisher: "IBM Redpapers"
+    year: 2007
+  - title: "Migrating from IBM Tivoli Risk Manager to IBM Tivoli Security Operations Manager 3.1"
+    publisher: "IBM Redpapers"
+    year: 2006
+  - title: "Active Directory Branch Office Planning Guide (contributor)"
+    publisher: "Microsoft"
+    year: 2000
+
+speaking_engagements:
+  # Selected highlights — full list spans 1995-2024 with 40+ engagements
+  - title: "Mind the Gap: Neurodiversity in Information Security"
+    venue: "DEFCON VR Village, BSides Knoxville"
+    year: 2024
+  - title: "The Double Edge Sword of AI: The Good, Bad, and the Ugly"
+    venue: "Georgia Cyber Innovation Summit"
+    year: 2024
+  - title: "Keynote speaker"
+    venue: "Zscaler One True Zero Live roadshow, Charlotte, NC"
+    year: 2024
+  - title: "Business Email Compromise in the World of AI and LLMs"
+    venue: "Horizon Summit"
+    year: 2023
+  - title: "Supply Chain Attacks in the Wild"
+    venue: "Truist DevCon and DefCon 404"
+    year: 2022
+  - title: "Generative AI and LLM in Cyber Security"
+    venue: "TAG Information Security Society"
+    year: 2022
+  - title: "The Long Con: Surviving 25+ Years in InfoSec"
+    venue: "BSides Knoxville"
+    year: 2020
+  - title: "Hacking 101 / Hacking 201"
+    venue: "EFF Track at DragonCon"
+    year: "2019, 2020"
+  - title: "Meet-a-Mentor Panel & Incident Response Panel"
+    venue: "Blue Team Village, DefCon"
+    year: 2020
+  - title: "IoCs: Indicators of Crap"
+    venue: "BSides Atlanta, Apex Assembly, Splunk .conf"
+    year: 2019
+  - title: "Cloud Security Myths"
+    venue: "DefCon SkyTalks and Blue Team Village"
+    year: 2018
+  - title: "GDPR: Intended and Unintended Consequences"
+    venue: "EFF Track at DragonCon"
+    year: 2018
+  - title: "Lateral Movement: How attackers quietly traverse your Network"
+    venue: "PhreakNIC and Hacker Halted"
+    year: 2016
+  - title: "Malware Visualized: Process Execution Mapping"
+    venue: "Security BSides Atlanta"
+    year: 2015
+  - title: "Proven Practices with IBM Security Technology"
+    venue: "IBM Pulse, Las Vegas"
+    year: 2012
+  - title: "Security Event Management and Network Forensics"
+    venue: "DoD Cyber Crime Conference, St. Louis"
+    year: 2009
+  - title: "SIEM and Identity Management at Harley-Davidson"
+    venue: "IBM Pulse, Las Vegas"
+    year: 2009
+  - title: "Building a Security Framework in Next Generation Networks"
+    venue: "Netcool User Symposium and EMEA Netcool Users Conference"
+    year: 2006
+  - title: "Current Wireless Security Attacks in the Wild"
+    venue: "Atlanta HTCIA"
+    year: 2005
+  - title: "Breaking into IT"
+    venue: "Association of IT Professionals, UW-Milwaukee"
+    year: 2005
+  - title: "Window Scripting Host in Windows 2000"
+    venue: "MIDAS, Atlanta"
+    year: 2000
+  - title: "Leadership, Diversity, and Group Dynamics"
+    venue: "Red Cross Leadership Development Conference, Emory University"
+    year: 1998
+  - title: "The Art and Science of Leadership"
+    venue: "Junior Civitan International Convention, Georgetown University"
+    year: 1995
+
+community_involvement:
+  - role: "Chair, Board of Directors"
+    organization: "TAG Information Security Society"
+    years: "2021-present"
+  - role: "Frequent Speaker"
+    organization: "DefCon, BlackHat, RSA, BSides, DragonCon EFF Track, Splunk .conf, SANS"
+    years: "2005-present"
+  - role: "Security Startup Advisor"
+    organization: "Various Atlanta-area cybersecurity startups"
+    years: "2015-present"
+  - role: "EFF Track Organizer/Speaker"
+    organization: "DragonCon"
+    years: "2016-2020"
+  - role: "Lay Minister"
+    organization: "Unitarian Universalist Congregation of Atlanta"
+    years: ""
+  - role: "Co-founder"
+    organization: "MIDAS (Microsoft Internet Development Association)"
+    years: "1999"
+
+professional_training:
+  - "IBM General Management Leadership Development Program (2006-2009, MBA equivalent)"
+  - "DCTIA (DoD Cyber Investigations Training Academy) - Mac/iPhone/iPad Forensics"
+  - "Criterion-Referenced Instruction (CRI) workshop"
+  - "Clayton Leadership Now (Clayton County Chamber of Commerce)"
+  - "Project Management for the IT Industry"
+
+preferences:
+  job_titles:
+    - "Chief Information Security Officer (CISO)"
+    - "VP of Security"
+    - "SVP of Cybersecurity"
+    - "Director of Security"
+    - "Director of Network Security"
+    - "Security Architect"
+    - "Head of Security Operations"
+    - "Managing Consultant (Security)"
+  target_companies: []
+  excluded_companies: []
+  min_salary: 0
+  max_salary: 0
+  preferred_salary: 0
+  remote_preference: "hybrid_ok"
+  locations:
+    - "Atlanta, GA"
+  industries:
+    - "Financial Services"
+    - "Cybersecurity"
+    - "Healthcare"
+    - "Technology"
+    - "Consulting"
+  company_size:
+    - "mid-size"
+    - "enterprise"
+    - "startup"
+  deal_breakers: []
+
+application_answers:
+  years_of_experience: 31
+  desired_salary: "negotiable"
+  start_date: "2 weeks"
+  sponsorship_required: false
+  has_disability: "prefer_not_to_answer"
+  veteran_status: "not_a_veteran"
+  gender: "prefer_not_to_answer"
+  ethnicity: "prefer_not_to_answer"
+  how_did_you_hear: "LinkedIn"
+  willing_to_travel: "up to 25%"
+  custom_answers:
+    "Why do you want to work here": |
+      With over three decades in cybersecurity — from hands-on engineering through CISO and SVP roles
+      at a top-6 US bank — I bring the rare combination of executive leadership and deep technical
+      capability. I'm drawn to organizations tackling meaningful security challenges where I can build
+      teams, shape strategy, and stay close to the technology. My track record of building security
+      programs from scratch and leading through major transformations aligns well with organizations
+      in growth or transition.
+    "Describe a challenging project": |
+      At Truist, I was hired to build a Cyber Incident Response Team from zero. Within 5 months,
+      I stood up a full 24/5 CIRT with all supporting processes and technology. This expanded into
+      leading the insourcing of all cyber technology from a managed security provider to 100% in-house
+      operations, then creating a Production Support Center of Excellence supporting 300+ engineers.
+      This effort earned me the Truist Performance Award, recognizing the top 1% of the company.
+    "What is your leadership style": |
+      I lead from the front — technically engaged but focused on enabling my teams. I've built
+      organizations from single-digit startups to 300+ person enterprise teams. I believe in
+      clear communication across all levels (board to SOC analyst), investing in people through
+      mentorship, and creating processes that scale. My career spanning vendor, consulting,
+      startup, and enterprise gives me empathy for every stakeholder in the security ecosystem.
+    "Tell us about your security philosophy": |
+      Security must be driven by business risk, not technology for its own sake. I've built programs
+      around zero-trust principles, defense-in-depth, and operational excellence. Whether implementing
+      microsegmentation at a startup or running SOC operations for a major bank, the fundamentals are
+      the same: know your assets, understand your threats, detect and respond quickly, and continuously
+      improve. I'm also a strong advocate for the security community — sharing knowledge through
+      speaking, publishing, and mentoring is how we all get better.

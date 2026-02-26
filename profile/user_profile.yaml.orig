@@ -1,0 +1,103 @@
+personal:
+  first_name: ""
+  last_name: ""
+  email: ""                    # Dedicated Gmail inbox for job applications
+  personal_email: ""           # Where to forward important emails
+  phone: ""
+  location: ""
+  linkedin_url: ""
+  github_url: ""               # Optional
+  portfolio_url: ""            # Optional
+  willing_to_relocate: false
+  work_authorization: "US Citizen"  # US Citizen, Green Card, H1B, etc.
+
+summary: |
+  Professional summary paragraph describing your background, expertise,
+  and what you're looking for in your next role.
+
+experience:
+  - company: ""
+    title: ""
+    start_date: "YYYY-MM"
+    end_date: "present"        # or "YYYY-MM"
+    location: ""
+    description: |
+      Brief description of your role and responsibilities.
+    achievements:
+      - "Achievement with metrics (e.g., Reduced latency by 40% through...)"
+      - "Another quantified achievement"
+    technologies:
+      - "Python"
+      - "PostgreSQL"
+
+education:
+  - institution: ""
+    degree: ""                 # e.g., "Bachelor of Science in Computer Science"
+    graduation_date: "YYYY-MM"
+    gpa: ""                    # Optional, omit if below 3.5
+
+skills:
+  programming_languages:
+    - name: "Python"
+      years: 5
+      proficiency: "expert"    # expert, advanced, intermediate, beginner
+    - name: "JavaScript"
+      years: 3
+      proficiency: "advanced"
+  frameworks_and_tools:
+    - "FastAPI"
+    - "Django"
+    - "React"
+    - "PostgreSQL"
+    - "Redis"
+    - "Docker"
+    - "Kubernetes"
+    - "AWS"
+    - "Git"
+  certifications:
+    - name: ""
+      issuer: ""
+      date: "YYYY-MM"
+
+preferences:
+  job_titles:
+    - "Senior Software Engineer"
+    - "Staff Software Engineer"
+    - "Senior Backend Engineer"
+  target_companies: []         # Leave empty for any company
+  excluded_companies:
+    - "Example Excluded Corp"
+  min_salary: 150000
+  max_salary: 0               # 0 = no max
+  preferred_salary: 180000
+  remote_preference: "remote_preferred"  # remote_only, remote_preferred, hybrid_ok, onsite_ok
+  locations:
+    - "San Francisco, CA"
+    - "New York, NY"
+    - "Austin, TX"
+  industries: []               # Leave empty for any industry
+  company_size: []             # e.g., ["startup", "mid-size", "enterprise"]
+  deal_breakers:
+    - "on-call required"
+    - "no remote work"
+
+application_answers:
+  years_of_experience: 5
+  desired_salary: "180000"
+  start_date: "2 weeks"
+  sponsorship_required: false
+  has_disability: "prefer_not_to_answer"
+  veteran_status: "not_a_veteran"
+  gender: "prefer_not_to_answer"
+  ethnicity: "prefer_not_to_answer"
+  how_did_you_hear: "LinkedIn"
+  willing_to_travel: "up to 10%"
+  custom_answers:
+    "Why do you want to work here": |
+      I'm drawn to your company's mission and the opportunity to work on
+      challenging technical problems at scale. I believe my background in
+      [relevant area] aligns well with your team's goals.
+    "Describe a challenging project": |
+      In my previous role, I led the migration of our monolithic architecture
+      to microservices, which reduced deployment time by 60% and improved
+      system reliability to 99.9% uptime.

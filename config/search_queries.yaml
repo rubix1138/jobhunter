@@ -1,0 +1,164 @@
+# LinkedIn Search Queries — Xavier Ashe
+# Cybersecurity executive with 31+ years: CISO, SVP SecOps, consulting, zero-trust, SIEM
+# Each query runs twice: once with Easy Apply filter, once without
+
+queries:
+
+  # ── CISO / Top-of-house Security Executive ────────────────────────────────
+
+  - name: "CISO Atlanta"
+    keywords: "Chief Information Security Officer"
+    location: "Atlanta, GA"
+    work_type: [1, 2, 3]       # on-site, remote, hybrid
+    experience_levels: [5, 6]  # director, executive
+    job_types: ["F"]
+    date_posted: "r604800"
+    sort_by: "DD"
+
+  - name: "CISO Remote"
+    keywords: "Chief Information Security Officer"
+    location: "United States"
+    work_type: [2, 3]          # remote or hybrid
+    experience_levels: [5, 6]
+    job_types: ["F"]
+    date_posted: "r604800"
+    sort_by: "DD"
+
+  - name: "VP Cybersecurity"
+    keywords: "VP Cybersecurity OR VP Information Security OR VP Security"
+    location: "United States"
+    work_type: [2, 3]
+    experience_levels: [5, 6]
+    job_types: ["F"]
+    date_posted: "r604800"
+    sort_by: "DD"
+
+  - name: "SVP Security"
+    keywords: "SVP Security OR SVP Cybersecurity OR SVP Information Security"
+    location: "United States"
+    work_type: [2, 3]
+    experience_levels: [6]
+    job_types: ["F"]
+    date_posted: "r604800"
+    sort_by: "DD"
+
+  # ── Security Operations Leadership ────────────────────────────────────────
+
+  - name: "Head of Security Operations"
+    keywords: "Head of Security Operations OR Director Security Operations OR VP Security Operations"
+    location: "United States"
+    work_type: [2, 3]
+    experience_levels: [5, 6]
+    job_types: ["F"]
+    date_posted: "r604800"
+    sort_by: "DD"
+
+  - name: "Director Cybersecurity Atlanta"
+    keywords: "Director Cybersecurity OR Director Information Security"
+    location: "Atlanta, GA"
+    work_type: [1, 2, 3]
+    experience_levels: [5, 6]
+    job_types: ["F"]
+    date_posted: "r604800"
+    sort_by: "DD"
+
+  - name: "Director Cybersecurity Remote"
+    keywords: "Director Cybersecurity OR Director Information Security"
+    location: "United States"
+    work_type: [2, 3]
+    experience_levels: [5, 6]
+    job_types: ["F"]
+    date_posted: "r604800"
+    sort_by: "DD"
+
+  # ── Security Architecture / Zero-Trust / Segmentation ────────────────────
+
+  - name: "Security Architect Executive"
+    keywords: "Principal Security Architect OR Distinguished Security Architect OR Chief Security Architect"
+    location: "United States"
+    work_type: [2, 3]
+    experience_levels: [5, 6]
+    job_types: ["F"]
+    date_posted: "r604800"
+    sort_by: "DD"
+
+  - name: "Zero Trust Architecture"
+    keywords: "Zero Trust Security Architect OR Zero Trust Program Lead"
+    location: "United States"
+    work_type: [2, 3]
+    experience_levels: [4, 5, 6]
+    job_types: ["F"]
+    date_posted: "r604800"
+    sort_by: "R"
+
+  # ── Financial Services / Banking Security ─────────────────────────────────
+
+  - name: "CISO Financial Services"
+    keywords: "CISO OR Chief Information Security Officer"
+    location: "United States"
+    work_type: [2, 3]
+    experience_levels: [5, 6]
+    job_types: ["F"]
+    date_posted: "r604800"
+    sort_by: "R"
+    # Financial services is Xavier's deepest domain (Truist SVP, 8 years)
+
+  - name: "Head of Cyber Banking"
+    keywords: "Head of Cyber OR Head of Information Security bank OR Head of Cybersecurity financial"
+    location: "United States"
+    work_type: [2, 3]
+    experience_levels: [5, 6]
+    job_types: ["F"]
+    date_posted: "r604800"
+    sort_by: "R"
+
+  # ── Security Consulting / Advisory ────────────────────────────────────────
+
+  - name: "Managing Director Security Consulting"
+    keywords: "Managing Director Cybersecurity OR Managing Director Information Security"
+    location: "United States"
+    work_type: [2, 3]
+    experience_levels: [5, 6]
+    job_types: ["F"]
+    date_posted: "r604800"
+    sort_by: "DD"
+
+  - name: "Security Practice Lead"
+    keywords: "Security Practice Lead OR Cybersecurity Practice Director OR Security Advisory Lead"
+    location: "United States"
+    work_type: [2, 3]
+    experience_levels: [5, 6]
+    job_types: ["F", "C"]
+    date_posted: "r604800"
+    sort_by: "DD"
+
+  - name: "Security Consultant"
+    keywords: "Security Consultant OR Security Principle OR Senior Security Consulant"
+    location: "United States"
+    work_type: [2, 3]
+    experience_levels: [5, 6]
+    job_types: ["F", "C"]
+    date_posted: "r604800"
+    sort_by: "DD"
+
+  # ── Fractional / Advisory / Board ─────────────────────────────────────────
+
+  - name: "Fractional CISO"
+    keywords: "Fractional CISO OR Virtual CISO OR vCISO"
+    location: "United States"
+    work_type: [2]
+    experience_levels: [5, 6]
+    job_types: ["F", "C"]      # full-time or contract
+    date_posted: "r2592000"    # past month (smaller market)
+    sort_by: "R"
+
+
+# Global filters applied to all queries
+global_filters:
+  exclude_keywords:
+    - "junior"
+    - "associate"
+    - "entry level"
+    - "intern"
+    - "analyst"            # too junior; Xavier leads analysts
+  max_pages_per_query: 2  # 25 results per page = 50 max per query pass

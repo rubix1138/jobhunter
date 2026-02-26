@@ -1,0 +1,41 @@
+# JobHunter Settings
+
+scheduler:
+  search_interval_min: 240   # minutes (4 hours)
+  search_interval_max: 360   # minutes (6 hours)
+  apply_interval_min: 120    # minutes (2 hours)
+  apply_interval_max: 180    # minutes (3 hours)
+  email_interval_business: 5   # minutes (during business hours)
+  email_interval_offhours: 30  # minutes (off hours)
+  business_hours_start: 8      # 8 AM local
+  business_hours_end: 20       # 8 PM local
+
+rate_limits:
+  linkedin_page_loads_per_hour: 120
+  applications_per_day: 25
+  applications_per_run: 10
+  max_new_jobs_per_run: 75      # cap total new jobs extracted per search-now run
+  min_delay_between_actions: 1.0   # seconds
+  max_delay_between_actions: 3.0   # seconds
+  min_delay_between_applications: 30.0  # seconds
+  max_delay_between_applications: 90.0  # seconds
+
+thresholds:
+  min_match_score: 0.5      # Jobs below this are disqualified
+  min_question_confidence: 0.4  # Skip application if below this
+  recruiter_reply_min_score: 0.7  # Auto-reply threshold
+
+budget:
+  daily_limit_usd: 15.00
+  alert_threshold_pct: 0.80     # Alert at 80% of daily limit
+
+models:
+  routine: "claude-sonnet-4-6"  # Scoring, Q&A, email classification
+  writing: "claude-opus-4-6"    # Resume and cover letter generation
+
+logging:
+  level: "INFO"
+  format: "json"
+  log_dir: "data/logs"
+  max_bytes: 10485760   # 10 MB
+  backup_count: 5
