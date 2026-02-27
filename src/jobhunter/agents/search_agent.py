@@ -426,6 +426,15 @@ async def detect_apply_type(page: Page) -> tuple[str, Optional[str]]:
     _url_match_early = _re.search(r"/jobs/view/(\d+)", page.url)
     _current_job_id_early = _url_match_early.group(1) if _url_match_early else None
 
+    def _looks_like_easy_apply_href(href: str) -> bool:
+        """Return True when href resembles LinkedIn's actual Easy Apply flow."""
+        h = (href or "").lower()
+        return (
+            "opensduiapplyflow" in h
+            or "/apply/" in h
+            or "easyapply" in h
+        )
+
     # ── Layer 1: AX tree — Easy Apply (most stable, survives all CSS churn) ──
     try:
         _easy_pattern = _re.compile(r"easy\s*apply", _re.IGNORECASE)
@@ -477,13 +486,13 @@ async def detect_apply_type(page: Page) -> tuple[str, Optional[str]]:
         ).first
         if await link.is_visible(timeout=2000):
             href = (await link.get_attribute("href") or "")
-            if not _current_job_id or _current_job_id in href:
+            if (not _current_job_id or _current_job_id in href) and _looks_like_easy_apply_href(href):
                 logger.debug("Detected Easy Apply via SDUI link (get_by_role)")
                 return "easy_apply", None
             else:
                 logger.debug(
-                    f"SDUI link found but job ID {_current_job_id!r} not in href "
-                    f"— likely a sidebar card, ignoring"
+                    f"Easy Apply link ignored (job/href mismatch or non-apply href): "
+                    f"job_id={_current_job_id!r}, href={href[:120]!r}"
                 )
     except Exception:
         pass
@@ -492,7 +501,7 @@ async def detect_apply_type(page: Page) -> tuple[str, Optional[str]]:
         link = scope.locator("a[href*='openSDUIApplyFlow']").first
         if await link.is_visible(timeout=1000):
             href = (await link.get_attribute("href") or "")
-            if not _current_job_id or _current_job_id in href:
+            if (not _current_job_id or _current_job_id in href) and _looks_like_easy_apply_href(href):
                 logger.debug("Detected Easy Apply via SDUI href attribute")
                 return "easy_apply", None
     except Exception:
@@ -847,16 +856,9 @@ class SearchAgent(BaseAgent):
                     if not details:
                         continue
 
-                    # If LinkedIn's Easy Apply filter was active but detection
-                    # returned 'unknown', trust the filter — the button may not
-                    # have rendered within the detection window. The apply agent
-                    # will re-verify before opening the modal.
-                    if easy_apply_only and details.get("apply_type") == "unknown":
-                        details["apply_type"] = "easy_apply"
-                        self.logger.debug(
-                            f"Trusting LinkedIn Easy Apply filter for job {job_id} "
-                            f"(detect_apply_type returned unknown)"
-                        )
+                    # Do not force unknown -> easy_apply even when LinkedIn's Easy
+                    # Apply filter is active. The filter is noisy and can include
+                    # recruiter-sourced or stale cards that are not true Easy Apply.
 
                     # Apply global keyword exclusions
                     if self._is_excluded(details["title"]):

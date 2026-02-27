@@ -114,3 +114,14 @@ class QACache:
     id: Optional[int] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+
+
+@dataclass
+class WorkdayTenant:
+    domain: str
+    auth_mode: str = "auto"  # auto|create_account|guest|signin_only|sso_only
+    status: str = "active"   # active|blocked
+    notes: Optional[str] = None
+    id: Optional[int] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None

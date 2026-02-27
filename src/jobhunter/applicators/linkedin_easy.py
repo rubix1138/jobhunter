@@ -286,6 +286,19 @@ class LinkedInEasyApplicator(BaseApplicator):
                 self.logger.debug(f"Navigate-back failed: {nav_err}")
             return True
 
+        def _looks_like_easy_apply_href(href: str) -> bool:
+            """Guard against sidebar/recruiter links mislabeled as Easy Apply."""
+            h = (href or "").lower()
+            if not h:
+                return False
+            if "/jobs/search/?" in h:
+                return False
+            return (
+                "opensduiapplyflow" in h
+                or "/apply/" in h
+                or "easyapply" in h
+            )
+
         # ── Layer 1: AX tree Easy Apply ───────────────────────────────────────
         try:
             _easy_pattern = _re.compile(r"easy\s*apply", _re.IGNORECASE)
@@ -393,13 +406,20 @@ class LinkedInEasyApplicator(BaseApplicator):
                     link = scope.locator("a[href*='openSDUIApplyFlow']").first
                 if not await link.is_visible(timeout=2_000):
                     continue
-                href = (await link.get_attribute("href") or "").lower()
-                if not href or ("linkedin.com" not in href and not href.startswith("/")):
+                href = (await link.get_attribute("href") or "")
+                href_l = href.lower()
+                if not href or ("linkedin.com" not in href_l and not href.startswith("/")):
                     continue
                 if _job_id and str(_job_id) not in href:
                     self.logger.debug(
                         f"SDUI link ({sdui_attempt}) skipped — href does not contain "
                         f"current job ID {_job_id!r} (likely a sidebar card for another job)"
+                    )
+                    continue
+                if not _looks_like_easy_apply_href(href):
+                    self.logger.debug(
+                        f"SDUI link ({sdui_attempt}) skipped — href is not a true apply flow: "
+                        f"{href[:120]!r}"
                     )
                     continue
                 # Use goto() instead of click() to force navigation in the current tab.

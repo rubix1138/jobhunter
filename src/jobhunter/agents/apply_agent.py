@@ -3,19 +3,23 @@
 import asyncio
 import json
 import os
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
-from ..applicators.generic import GenericApplicator
+from ..applicators.form_filling import FormFillingAgent
 from ..applicators.linkedin_easy import LinkedInEasyApplicator
-from ..applicators.workday import WorkdayApplicator
 from ..browser.context import BrowserSession
 from ..browser.stealth import application_delay
 from ..browser.vision import VisionAnalyzer
 from ..crypto.vault import CredentialVault
 from ..db.models import Application, Job
-from ..db.repository import ApplicationRepo, CredentialRepo, JobRepo, QACacheRepo
+from ..db.repository import (
+    ApplicationRepo,
+    CredentialRepo,
+    JobRepo,
+    QACacheRepo,
+)
 from ..llm.client import ClaudeClient
 from ..llm.cover_letter import (
     generate_cover_letter,
@@ -57,6 +61,7 @@ class ApplyAgent(BaseAgent):
         dry_run: bool = False,
         review_mode: bool = False,
         apply_type_filter: Optional[list[str]] = None,
+        reprobe_blocked_workday: bool = False,
     ) -> None:
         super().__init__(
             db_path=db_path,
@@ -78,6 +83,7 @@ class ApplyAgent(BaseAgent):
         self._dry_run = dry_run
         self._review_mode = review_mode
         self._apply_type_filter: Optional[list[str]] = apply_type_filter
+        self._reprobe_blocked_workday = reprobe_blocked_workday
         self._vision = VisionAnalyzer(llm)
         self._vault = CredentialVault()  # reads FERNET_KEY from env
         # Try to initialise Gmail client for email verification flows (optional)
@@ -196,8 +202,10 @@ class ApplyAgent(BaseAgent):
             job_repo.update_status(job.id, "skipped")
             return False
 
-        # Jobs with unknown apply_type or missing external_url get a live re-detection pass.
-        needs_redetect = apply_type == "unknown" or (
+        # Jobs with unknown or easy_apply type get a live re-detection pass so we
+        # avoid generating materials for recruiter-sourced "I'm interested" cards.
+        # External jobs also re-detect when external_url is missing.
+        needs_redetect = apply_type in ("unknown", "easy_apply") or (
             apply_type.startswith("external") and not job.external_url
         )
         if needs_redetect and not self._dry_run:
@@ -221,7 +229,7 @@ class ApplyAgent(BaseAgent):
                 return False
 
             # After re-detection, bail if still unapplyable
-            if apply_type in ("interest_only", "unknown"):
+            if apply_type in ("interest_only", "unknown", "expired"):
                 self.logger.info(
                     f"Skipping {job.title} @ {job.company} — "
                     f"re-detection returned apply_type={apply_type!r}"
@@ -311,8 +319,61 @@ class ApplyAgent(BaseAgent):
             return success
 
         except Exception as e:
+            await self._capture_apply_failure_artifacts(job, "apply_exception", e)
             app_repo.update_status(app_id, "failed", str(e))
             raise
+
+    async def _capture_apply_failure_artifacts(
+        self,
+        job: Job,
+        reason: str,
+        error: Exception | str,
+    ) -> None:
+        """Capture screenshot + page context for unexpected apply-time failures."""
+        try:
+            out_dir = Path("data/logs/failures")
+            out_dir.mkdir(parents=True, exist_ok=True)
+            ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            safe_reason = "".join(c if c.isalnum() or c in "._-" else "_" for c in reason)
+            base = f"job{job.id}_{safe_reason}_{ts}"
+            png_path = out_dir / f"{base}.png"
+            txt_path = out_dir / f"{base}.txt"
+
+            page = self._session.page
+            url = ""
+            body_text = ""
+            try:
+                url = page.url
+                await page.screenshot(path=str(png_path), full_page=True)
+            except Exception:
+                pass
+            try:
+                body_text = await page.locator("body").inner_text()
+            except Exception:
+                body_text = "<could not read body text>"
+
+            txt_path.write_text(
+                "\n".join(
+                    [
+                        f"timestamp_utc={ts}",
+                        f"job_id={job.id}",
+                        f"title={job.title}",
+                        f"company={job.company}",
+                        f"reason={reason}",
+                        f"error={error}",
+                        f"url={url}",
+                        "",
+                        "body_text:",
+                        body_text[:10000],
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            self.logger.error(
+                f"Apply failure artifacts saved: screenshot={png_path} context={txt_path}"
+            )
+        except Exception as capture_err:
+            self.logger.warning(f"Could not capture apply failure artifacts: {capture_err}")
 
     async def _dispatch(self, job: Job, application: Application, resume_path: Path) -> bool:
         """Route to the appropriate applicator based on apply_type."""
@@ -337,35 +398,32 @@ class ApplyAgent(BaseAgent):
                 qa_cache=qa_cache,
             )
 
-        elif apply_type == "external_workday":
+        else:
+            # All external types (workday, greenhouse, lever, etc.) → FormFillingAgent
             cred_repo = CredentialRepo(self._conn)
-            applicator = WorkdayApplicator(
+            self.logger.info(f"Using FormFillingAgent for {apply_type} @ {job.company}")
+            applicator = FormFillingAgent(
                 page=self._session.page,
                 llm=self._llm,
                 profile=self._profile,
+                resume_path=resume_path,
                 vault=self._vault,
                 cred_repo=cred_repo,
-                resume_path=resume_path,
                 vision=self._vision,
                 review_mode=self._review_mode,
                 qa_cache=qa_cache,
                 gmail=self._gmail_client,
             )
 
-        else:
-            # external_other or unknown — best-effort generic
-            self.logger.info(f"Using generic applicator for {apply_type} @ {job.company}")
-            applicator = GenericApplicator(
-                page=self._session.page,
-                llm=self._llm,
-                profile=self._profile,
-                resume_path=resume_path,
-                vision=self._vision,
-                review_mode=self._review_mode,
-                qa_cache=qa_cache,
-            )
+        success = False
 
-        success = await applicator.apply(job, application)
+        try:
+            success = await applicator.apply(job, application)
+        finally:
+            # NOTE: Playwright tracing with Patchright persistent contexts causes
+            # Workday navigations to fail with net::ERR_NAME_NOT_RESOLVED in this
+            # environment. Keep diagnostic screenshots/context artifacts instead.
+            pass
 
         # If Easy Apply failed because the job is actually recruiter-sourced,
         # correct the stored type so it never re-queues.

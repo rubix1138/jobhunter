@@ -5,11 +5,11 @@ import pytest
 
 from jobhunter.db.engine import init_db
 from jobhunter.db.models import (
-    AgentRun, Application, Credential, EmailLog, Job, LlmUsage, QACache
+    AgentRun, Application, Credential, EmailLog, Job, LlmUsage, QACache, WorkdayTenant
 )
 from jobhunter.db.repository import (
     AgentRunRepo, ApplicationRepo, CredentialRepo, EmailRepo, JobRepo, LlmUsageRepo,
-    QACacheRepo,
+    QACacheRepo, WorkdayTenantRepo,
 )
 
 
@@ -48,6 +48,11 @@ def run_repo(conn):
 @pytest.fixture
 def llm_repo(conn):
     return LlmUsageRepo(conn)
+
+
+@pytest.fixture
+def tenant_repo(conn):
+    return WorkdayTenantRepo(conn)
 
 
 def make_job(**overrides) -> Job:
@@ -231,6 +236,39 @@ class TestCredentialRepo:
         cred_repo.upsert(Credential(domain="d.com", username="u@u.com", password="p"))
         cred_repo.delete("d.com", "u@u.com")
         assert cred_repo.get("d.com", "u@u.com") is None
+
+
+class TestWorkdayTenantRepo:
+    def test_upsert_and_get(self, tenant_repo):
+        tenant_repo.upsert(
+            WorkdayTenant(
+                domain="acme.wd5.myworkdayjobs.com",
+                auth_mode="signin_only",
+                status="active",
+                notes="detected",
+            )
+        )
+        got = tenant_repo.get("acme.wd5.myworkdayjobs.com")
+        assert got is not None
+        assert got.auth_mode == "signin_only"
+        assert got.status == "active"
+
+    def test_upsert_updates(self, tenant_repo):
+        tenant_repo.upsert(
+            WorkdayTenant(domain="acme.wd5.myworkdayjobs.com", auth_mode="auto")
+        )
+        tenant_repo.upsert(
+            WorkdayTenant(
+                domain="acme.wd5.myworkdayjobs.com",
+                auth_mode="sso_only",
+                status="blocked",
+                notes="recovery_failed",
+            )
+        )
+        got = tenant_repo.get("acme.wd5.myworkdayjobs.com")
+        assert got is not None
+        assert got.auth_mode == "sso_only"
+        assert got.status == "blocked"
 
 
 # ── EmailRepo ─────────────────────────────────────────────────────────────────

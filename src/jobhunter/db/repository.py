@@ -4,7 +4,16 @@ import json
 import sqlite3
 from typing import Optional
 
-from .models import AgentRun, Application, Credential, EmailLog, Job, LlmUsage, QACache
+from .models import (
+    AgentRun,
+    Application,
+    Credential,
+    EmailLog,
+    Job,
+    LlmUsage,
+    QACache,
+    WorkdayTenant,
+)
 from . import queries
 
 
@@ -285,6 +294,11 @@ def _row_to_qa_cache(row: sqlite3.Row) -> QACache:
     return QACache(**d)
 
 
+def _row_to_workday_tenant(row: sqlite3.Row) -> WorkdayTenant:
+    d = dict(row)
+    return WorkdayTenant(**d)
+
+
 class QACacheRepo:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
@@ -298,4 +312,20 @@ class QACacheRepo:
             entry.question_key, entry.options_hash, entry.field_type,
             entry.answer, entry.confidence, entry.source,
         ))
+        self._conn.commit()
+
+
+class WorkdayTenantRepo:
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+
+    def get(self, domain: str) -> Optional[WorkdayTenant]:
+        row = self._conn.execute(queries.GET_WORKDAY_TENANT, (domain,)).fetchone()
+        return _row_to_workday_tenant(row) if row else None
+
+    def upsert(self, tenant: WorkdayTenant) -> None:
+        self._conn.execute(
+            queries.UPSERT_WORKDAY_TENANT,
+            (tenant.domain, tenant.auth_mode, tenant.status, tenant.notes),
+        )
         self._conn.commit()

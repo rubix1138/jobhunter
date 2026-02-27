@@ -54,13 +54,16 @@ class GmailClient:
             logger.error(f"Failed to list Gmail messages: {e}")
             return []
 
-    def search_messages(self, query: str, max_results: int = 10) -> list[str]:
+    def search_messages(
+        self, query: str, max_results: int = 10, include_spam_trash: bool = False
+    ) -> list[str]:
         """Return message IDs matching the given Gmail search query."""
         try:
             result = self._svc.users().messages().list(
                 userId=_USER,
                 q=query,
                 maxResults=max_results,
+                includeSpamTrash=include_spam_trash,
             ).execute()
             messages = result.get("messages", [])
             return [m["id"] for m in messages]
@@ -232,7 +235,21 @@ def _decode_b64(data: str) -> str:
 def _strip_html(html: str) -> str:
     """Very basic HTML tag stripper (no dependencies)."""
     import re
-    text = re.sub(r"<[^>]+>", " ", html)
+    # Preserve anchor URLs before stripping tags so callers can extract links.
+    text = re.sub(
+        r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',
+        r" \2 (\1) ",
+        html,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    # Preserve other href/src URLs that may appear in non-anchor tags.
+    text = re.sub(
+        r'(?:href|src)=["\']([^"\']+)["\']',
+        r" \1 ",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"<[^>]+>", " ", text)
     text = re.sub(r"&nbsp;", " ", text)
     text = re.sub(r"&amp;", "&", text)
     text = re.sub(r"&lt;", "<", text)

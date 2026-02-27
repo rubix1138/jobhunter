@@ -125,3 +125,15 @@ CREATE TABLE IF NOT EXISTS qa_cache (
     UNIQUE(question_key, options_hash)
 );
 CREATE INDEX IF NOT EXISTS idx_qa_cache_key ON qa_cache(question_key);
+
+-- workday_tenants table — per-tenant auth capability routing
+CREATE TABLE IF NOT EXISTS workday_tenants (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    domain     TEXT NOT NULL UNIQUE,
+    auth_mode  TEXT NOT NULL DEFAULT 'auto',
+    status     TEXT NOT NULL DEFAULT 'active',
+    notes      TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_workday_tenants_mode ON workday_tenants(auth_mode);

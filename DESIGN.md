@@ -4,6 +4,29 @@
 
 Build an automated system with three AI agents to search LinkedIn for jobs, apply with custom-tailored resumes/cover letters (handling both LinkedIn Easy Apply and external sites like Workday), and monitor a dedicated Gmail inbox to track application status and escalate when human intervention is needed.
 
+## Current Design Decisions (2026-02-27)
+
+- **Architecture pivot**: Replaced platform-specific applicators (`WorkdayApplicator` 4,089 lines, `GenericApplicator` 298 lines) with a single `FormFillingAgent` (~577 lines). LinkedIn Easy Apply stays separate (stable modal).
+- **No platform-specific CSS selectors**: FormFillingAgent uses only `get_by_role`, `get_by_label`, `find_by_aria_label`, and XPath text-proximity. Works across any ATS.
+- **Form-filling strategy** (universal for all ATS platforms):
+  1. AX tree snapshot → `format_interactive_fields()` → compact field list
+  2. LLM planner (Claude Sonnet) generates JSON fill plan from fields + profile
+  3. Execute plan items via ARIA locators with 9-approach fallback chain
+  4. Broad radiogroup scan as supplemental pass
+  5. Vision fallback when AX tree is unavailable
+- **Auth strategy** (universal):
+  1. Guest flow (try "Continue as Guest" / "Apply Without Account" labels)
+  2. Stored credential login (per-domain, Fernet-encrypted)
+  3. Account creation with email subaddressing + auto-generated password
+- **No manual auth handoff**: system remains fully automated.
+- **Apply-type hardening (LinkedIn)**:
+  - do not force `unknown` to `easy_apply` during Easy Apply-filtered search,
+  - always re-detect `easy_apply` at apply time before generating materials,
+  - tighten SDUI link validation (`openSDUIApplyFlow` / `/apply/`) to avoid recruiter/sidebar redirects.
+- **Diagnostics policy**:
+  - preserve detailed apply artifacts and structured logs,
+  - keep tests green between iterations before live reruns.
+
 ---
 
 ## Tech Stack
@@ -61,8 +84,7 @@ jobhunter/
 │   ├── applicators/
 │   │   ├── base.py              # BaseApplicator ABC: answer_question(), handle_stuck_page()
 │   │   ├── linkedin_easy.py     # Easy Apply modal multi-step handler
-│   │   ├── workday.py           # Account creation, login, Workday form navigation; Planner-Actor-Validator loop
-│   │   └── generic.py           # Best-effort external ATS (heavy Vision usage)
+│   │   └── form_filling.py      # FormFillingAgent: universal ATS applicator (AX tree + Vision + LLM planning)
 │   ├── llm/
 │   │   ├── client.py            # Claude API wrapper: model selection, retry, token/cost tracking
 │   │   ├── prompts.py           # All prompt templates
@@ -89,7 +111,7 @@ jobhunter/
 
 ## Database Schema
 
-**7 tables:**
+**8 tables:**
 
 1. **jobs** — Every discovered listing. Key fields: `linkedin_job_id` (unique, for dedup), `title`, `company`, `description`, `job_url`, `external_url`, `apply_type` (easy_apply | external_workday | external_greenhouse | external_lever | external_icims | external_taleo | external_smartrecruiters | external_jobvite | external_bamboohr | external_successfactors | external_ashby | external_theladders | external_paylocity | external_ukg | external_adp | external_oracle | external_other | interest_only | expired | unknown), `match_score`, `status` (new -> qualified -> applied -> interviewing -> rejected/offer)
 2. **applications** — One per application attempt. Links to job. Stores `resume_path`, `cover_letter_path`, full text of both, `questions_json` (Q&A record), `status`, `attempt_count`
@@ -98,6 +120,7 @@ jobhunter/
 5. **agent_runs** — Audit log per agent execution (timing, counts, errors)
 6. **llm_usage** — Token/cost tracking per API call
 7. **qa_cache** — Cross-application Q&A cache. Keyed by `(question_key, options_hash)`. `times_used` counter. High-confidence answers (≥ 0.7) written automatically; cache reads cost zero LLM tokens.
+8. **workday_tenants** — Per-tenant Workday auth capability routing. Keyed by `domain`. Fields: `auth_mode` (`auto|create_account|guest|signin_only|sso_only`), `status` (`active|blocked`), `notes`.
 
 ### Detailed Schema (schema.sql)
 
@@ -227,6 +250,18 @@ CREATE TABLE IF NOT EXISTS qa_cache (
     UNIQUE(question_key, options_hash)
 );
 CREATE INDEX IF NOT EXISTS idx_qa_cache_key ON qa_cache(question_key);
+
+-- workday_tenants table
+CREATE TABLE IF NOT EXISTS workday_tenants (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    domain     TEXT NOT NULL UNIQUE,
+    auth_mode  TEXT NOT NULL DEFAULT 'auto',
+    status     TEXT NOT NULL DEFAULT 'active',
+    notes      TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_workday_tenants_mode ON workday_tenants(auth_mode);
 ```
 
 ---
@@ -268,9 +303,8 @@ CREATE INDEX IF NOT EXISTS idx_qa_cache_key ON qa_cache(question_key);
 3. **PDF caching**: Check `data/resumes/resume_{slug}_*.pdf` and `cover_{slug}_*.pdf`. Reuse if present; otherwise generate via Opus and save.
 4. **Per job (if no cached PDFs):** Generate tailored resume + cover letter via Claude Opus, convert to PDF via WeasyPrint
 5. Delegate to the right applicator based on `apply_type`:
-   - **LinkedInEasyApplicator**: Always re-navigates to job URL (avoids stale SPA state after 40+ second LLM calls). `_open_modal()` tries AX tree first (ARIA labels survive all CSS changes), then `get_by_role`, SDUI links, CSS selectors, and Vision as successive fallbacks. Iterates steps: upload resume, fill radio/select/textarea/text fields, submit. Calls `_pause_for_review()` before final click.
-   - **WorkdayApplicator**: Check for stored credentials (per-domain, encrypted) or create a new account (auto-generated password, Gmail subaddress). Login, upload resume, fill sections (including JS `<button>+<ul role="listbox">` dropdowns via `_click_workday_option()`), handle EEO questions, detect validation errors after each Next click, submit with review pause. When DOM detection finds 0 field groups (non-standard `data-automation-id` values), runs `_scan_radiogroups` then falls back to the **Planner-Actor-Validator** loop: (1) **Planner** — AX tree snapshot via `format_interactive_fields`; if AX unavailable, Vision describes form fields instead; Claude Sonnet produces a JSON fill plan. (2) **Actor** — `_execute_plan_item` locates each field by ARIA label → `get_by_label` → three XPath text-proximity approaches (ancestor `<select>`, ancestor `<button>+listbox`, ancestor `[role='combobox']`). (3) **Validator** — `_validate_advance()` polls for section name change (400ms × 4s); Vision diagnosis + one LLM-guided retry on stuck. Submission confirmed via `_confirm_submission()` (page text → CSS selectors → Vision).
-   - **GenericApplicator**: Best-effort with heavy Claude Vision usage for unknown form layouts, review pause before submit.
+   - **LinkedInEasyApplicator** (for `easy_apply`): Always re-navigates to job URL (avoids stale SPA state after 40+ second LLM calls). `_open_modal()` tries AX tree first (ARIA labels survive all CSS changes), then `get_by_role`, SDUI links, CSS selectors, and Vision as successive fallbacks. Iterates steps: upload resume, fill radio/select/textarea/text fields, submit. Calls `_pause_for_review()` before final click.
+   - **FormFillingAgent** (for everything else — Workday, Greenhouse, Lever, iCIMS, etc.): Universal applicator using AX tree + Vision + LLM planning. No platform-specific CSS selectors. Per-page loop: (1) **AX tree snapshot** → `format_interactive_fields()` → compact field list; Vision fallback if AX tree unavailable. (2) **LLM planner** — Claude Sonnet generates JSON fill plan from fields + profile summary. (3) **Execute** — `_fill_field()` locates each field via `find_by_aria_label` → `get_by_label` → 9 text-proximity XPath approaches for select/dropdown. Radio fields use 4-approach chain (named group → filter by text → XPath ancestor → broad). (4) **Radiogroup scan** — supplemental pass for groups the planner missed. (5) **Navigate** — `_advance_or_submit()` uses `get_by_role("button")` matching Next/Continue/Submit labels. (6) **Stuck detection** — polls URL + page heading for change; aborts after 3 consecutive stuck pages. Auth handling: guest flow → stored credential login → account creation with email subaddressing. Submission confirmed via text phrases + Vision.
 6. All applicators use a 5-level Q&A resolution chain:
    - **QA cache lookup** — `qa_cache` table keyed by `(normalize(question), options_hash)`. Threshold: confidence ≥ 0.7. Cache hit returns `source="cache"` immediately — zero LLM tokens.
    - **Profile lookup** — `custom_answers`, `years_of_experience`, work authorization, certifications (regex + acronym match with `re.MULTILINE`), salary, relocation, disability/gender/ethnicity
@@ -475,8 +509,8 @@ Claude API client wrapper (retry, token tracking, cost logging), match scoring p
 ### Phase 4: Application Agent — LinkedIn Easy Apply
 Resume tailoring (Opus), cover letter generation (Opus), PDF conversion, BaseApplicator with question answering, LinkedInEasyApplicator (multi-step modal handler), Vision fallback module. **Testable** with real Easy Apply jobs.
 
-### Phase 5: Application Agent — Workday & External Sites
-WorkdayApplicator (account creation, credential storage, form navigation), GenericApplicator (Vision-heavy fallback for unknown ATSs). **Testable** against real Workday portals.
+### Phase 5: Application Agent — Workday & External Sites (superseded by Phase 19)
+Originally: WorkdayApplicator + GenericApplicator. **Replaced by FormFillingAgent in Phase 19.**
 
 ### Phase 6: Email Agent
 Gmail OAuth2 setup, Gmail API client, email classifier, forwarding logic, auto-reply generation, job status updates from email events. **Testable** with real Gmail inbox.
@@ -540,6 +574,52 @@ Live test runs (run_ids 90–93) against real Workday tenants identified two Pha
 
 3 new tests (373 total): three radiogroup formatting tests in `test_accessibility.py` covering the Workday pattern where label text is embedded as a child text node or preceding sibling.
 
+### Phase 17: Workday Tenant Capability Routing + Sign-In-Only Recovery
+
+Two operational decisions were added to keep Workday automation fully hands-off while preserving credential/email tracking:
+
+1. **Tenant capability routing** — persist per-domain auth mode in `workday_tenants` (`create_account`, `guest`, `signin_only`, `sso_only`, `auto`) and reuse it across runs.
+2. **Automated sign-in-only recovery** — when account creation is unavailable, trigger password reset, fetch reset links from Gmail, rotate credentials automatically, and continue.
+
+This avoids manual auth handoffs that would break the software’s credential lifecycle and tagged-email downstream dependencies.
+
+### Phase 18: Workday SSO-Only Email Recovery Hardening (Current Status)
+
+Follow-up hardening was implemented and validated in live runs (`run_id` 108-111):
+
+1. Added social-login gateway handling (`Sign in with email`) before forgot/reset actions.
+2. Expanded reset/sign-in selectors and submit labels.
+3. Preserved URLs from HTML Gmail messages (anchor `href`) to avoid losing reset links during parsing.
+4. Added broader Gmail polling for reset/sign-in links:
+   - strict + fallback queries,
+   - recipient-aware matching for tagged aliases,
+   - include spam/trash,
+   - longer polling window for `reset`/`signin`.
+5. Added reset-request acceptance heuristics before waiting on Gmail.
+
+Current blocker:
+- Tenant `paloaltonetworks.wd5.myworkdayjobs.com` is consistently detected as `sso_only`.
+- UI recovery path executes, but no usable reset or sign-in email link is observed in Gmail for the tenant alias during the polling window.
+- Result remains `0 submitted` for this tenant in current automated mode.
+
+Decision impact:
+- Keep `workday_tenants.status='blocked'` for this domain and continue non-blocking execution for other jobs/tenants.
+- Preserve full automation architecture (no manual auth handoff) and treat this as tenant-policy constrained until a new tenant-specific entry point is discovered.
+
+### Project Memory Convention
+
+To keep Claude and Codex aligned, use a two-file convention in repo root:
+
+1. `CLAUDE.md` — long-form project history, architecture, and phase narrative (existing source of truth).
+2. `STATUS.md` — short operational memory updated each session:
+   - date/time,
+   - current blocker(s),
+   - last successful command(s),
+   - last failed command(s) + error signatures,
+   - next 1-3 actions.
+
+Codex works best with concise, append-only operational memory (`STATUS.md`) plus the detailed design/history doc.
+
 ### Phase 12: Workday Hardening + Cross-Application Q&A Cache
 Three targeted fixes for Workday applications and repeated-question efficiency:
 
@@ -549,6 +629,23 @@ Three targeted fixes for Workday applications and repeated-question efficiency:
 
 3. **Validation error detection** — after each `_advance()` in `_navigate_form()`, queries `[data-automation-id='field-error']` and related selectors. Logs up to 3 error messages at WARNING level. Continues advancing (some errors self-resolve); guards against silently submitting incomplete sections.
 
+### Phase 19: FormFillingAgent — Replace Platform-Specific Applicators (In Progress)
+
+Replaced `WorkdayApplicator` (4,089 lines) and `GenericApplicator` (298 lines) with a single `FormFillingAgent` (~577 lines) in `applicators/form_filling.py`. The old approach was a combinatorial trap — platform × tenant × form layout variations grew faster than hand-coded handlers could cover.
+
+**What FormFillingAgent does:**
+- Universal applicator for any ATS platform (Workday, Greenhouse, Lever, iCIMS, etc.)
+- Uses AX tree + Vision + LLM planning instead of platform-specific CSS selectors
+- Per-page loop: AX tree → `format_interactive_fields()` → LLM planner → execute plan items via ARIA locators
+- 9-approach fallback chain for select/dropdown fields (native select → click+option → typeahead → ancestor walk → text-proximity XPath)
+- 4-approach fallback for radio fields
+- Auth: guest flow → stored credential login → account creation with email subaddressing
+- Stuck detection via URL + heading polling; aborts after 3 stuck pages
+- Submission confirmation via text phrases + Vision
+
+**Current status:** 372 tests passing. Unit testing of new code paths is the next step.
+**Current status:** 93 `tests/test_apply` tests passing with expanded FormFillingAgent coverage. Live reviewed rerun after DB requeue confirmed reevaluation of previously skipped jobs and mixed external-site outcomes (auth walls / stuck forms remain expected failure modes).
+
 ---
 
 ## Verification
@@ -557,12 +654,9 @@ Three targeted fixes for Workday applications and repeated-question efficiency:
 - **Phase 2**: Manual — launch browser, verify LinkedIn login, confirm session persists across restarts
 - **Phase 3**: `python -m jobhunter search-now` — verify jobs appear in DB with scores
 - **Phase 4**: `python -m jobhunter apply-now` — verify Easy Apply submission on a real listing
-- **Phase 5**: Manual — test Workday account creation + application on a real portal
+- **Phase 5**: ~~Manual Workday test~~ (superseded by Phase 19)
 - **Phase 6**: `python -m jobhunter check-email` — verify classification, forwarding, DB status updates
 - **Phase 7**: `python -m jobhunter run` — full scheduler runs all agents on schedule, verify with `python -m jobhunter status`
-- **Phase 8-9**: `pytest tests/` (349 tests) — unit coverage for AX tree helpers, form field analysis, apply detection fallback chain
-- **Phase 10**: `jobhunter apply-now --review` — verify cert detection, strategic Q&A fallback, and SDUI navigation work on live applications; `jobhunter qa-log` to inspect recorded answers
-- **Phase 12**: `pytest tests/` (361 tests) — QA cache DB tests + BaseApplicator cache integration tests; `jobhunter init` to create `qa_cache` table on existing DB; `jobhunter apply-now --review` on a Workday job to verify dropdown handling and "QA cache hit" log lines on the second application
-- **Phase 13**: `pytest tests/` (363 tests); `jobhunter search-now --max-queries 2 --max-pages 1` to verify correct classification (Workday/iCIMS/Lever jobs no longer land as `interest_only`); `jobhunter platform-stats` to see ATS distribution; `jobhunter apply-now --apply-type workday --dry-run` to test Workday applicator in isolation
-- **Phase 15**: `pytest tests/` (370 tests); `jobhunter apply-now --apply-type workday --review` — watch logs for `"LLM-guided section: N/M fields filled"` (planner activated on non-standard tenant), `"Section 'X' did not advance"` (validator caught stuck state), and confirmation text in page content after submit
-- **Phase 16**: `pytest tests/` (373 tests); `jobhunter apply-now --apply-type workday --review` — watch logs for `"LLM-guided using Vision field description: ..."` (Vision fallback firing when AX tree is None), `"DOM field detection: N groups found"`, `"Broad radiogroup scan: N groups found"`. Approach 7/8/9 activation visible at DEBUG level when `get_by_label` fails for a select/dropdown plan item.
+- **Phase 8-9**: `pytest tests/` — unit coverage for AX tree helpers, form field analysis, apply detection fallback chain
+- **Phase 10**: `jobhunter apply-now --review` — verify cert detection, strategic Q&A fallback, and SDUI navigation
+- **Phase 19**: `pytest tests/` (372 tests); then `jobhunter apply-now --apply-type workday --review --dry-run` — watch logs for `"AX fields"`, `"Page fill: N fields filled"`, `"FormFillingAgent"`, `"Guest flow"`, `"Stored credentials"`. Stuck detection visible via `"Page did not change"` warnings.

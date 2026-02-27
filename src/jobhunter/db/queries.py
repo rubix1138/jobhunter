@@ -121,7 +121,10 @@ ON CONFLICT(domain, username) DO UPDATE SET
 
 GET_CREDENTIAL = "SELECT * FROM credentials WHERE domain = ? AND username = ?"
 
-GET_CREDENTIALS_BY_DOMAIN = "SELECT * FROM credentials WHERE domain = ?"
+GET_CREDENTIALS_BY_DOMAIN = (
+    "SELECT * FROM credentials WHERE domain = ? "
+    "ORDER BY datetime(updated_at) DESC, id DESC"
+)
 
 DELETE_CREDENTIAL = "DELETE FROM credentials WHERE domain = ? AND username = ?"
 
@@ -203,4 +206,18 @@ VALUES (?, ?, ?, ?, ?, ?, 1)
 ON CONFLICT(question_key, options_hash) DO UPDATE SET
     answer=excluded.answer, confidence=excluded.confidence, source=excluded.source,
     times_used=times_used+1, updated_at=datetime('now')
+"""
+
+# ── Workday tenant capabilities ──────────────────────────────────────────────
+
+GET_WORKDAY_TENANT = "SELECT * FROM workday_tenants WHERE domain = ?"
+
+UPSERT_WORKDAY_TENANT = """
+INSERT INTO workday_tenants (domain, auth_mode, status, notes)
+VALUES (?, ?, ?, ?)
+ON CONFLICT(domain) DO UPDATE SET
+    auth_mode=excluded.auth_mode,
+    status=excluded.status,
+    notes=excluded.notes,
+    updated_at=datetime('now')
 """

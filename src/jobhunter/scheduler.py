@@ -267,6 +267,7 @@ async def run_apply_once(
     dry_run: bool = False,
     review_mode: bool = False,
     apply_type_filter: Optional[list[str]] = None,
+    reprobe_blocked_workday: bool = False,
 ) -> None:
     """Run the apply agent a single time (used by `apply-now` command)."""
     llm = _build_llm(settings)
@@ -283,6 +284,7 @@ async def run_apply_once(
             dry_run=dry_run,
             review_mode=review_mode,
             apply_type_filter=apply_type_filter,
+            reprobe_blocked_workday=reprobe_blocked_workday,
         )
         result = await agent.run()
         if dry_run:

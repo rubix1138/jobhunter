@@ -63,6 +63,11 @@ class TestBuildParser:
         args = parser.parse_args(["--db", "/tmp/custom.db", "status"])
         assert args.db == "/tmp/custom.db"
 
+    def test_apply_now_accepts_reprobe_blocked_workday_flag(self):
+        parser = build_parser()
+        args = parser.parse_args(["apply-now", "--reprobe-blocked-workday"])
+        assert args.reprobe_blocked_workday is True
+
 
 # ── _load_settings ────────────────────────────────────────────────────────────
 

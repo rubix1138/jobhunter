@@ -241,6 +241,7 @@ def cmd_apply_now(args) -> int:
     db_path = os.environ.get("DB_PATH", "data/jobhunter.db")
     dry_run = getattr(args, "dry_run", False)
     review_mode = getattr(args, "review_mode", False)
+    reprobe_blocked_workday = getattr(args, "reprobe_blocked_workday", False)
     apply_type_filter = None
 
     raw_types = getattr(args, "apply_type", None) or []
@@ -253,6 +254,8 @@ def cmd_apply_now(args) -> int:
     elif review_mode:
         print("Review mode — the browser will fill each form completely, then pause for your approval before submitting.")
         print("  [Enter] = Submit   [s] = Skip this job   [q] = Quit all\n")
+    if reprobe_blocked_workday:
+        print("Re-probe mode — blocked Workday tenants will be retried in this run.")
 
     from .scheduler import run_apply_once
     asyncio.run(run_apply_once(
@@ -260,6 +263,7 @@ def cmd_apply_now(args) -> int:
         dry_run=dry_run,
         review_mode=review_mode,
         apply_type_filter=apply_type_filter,
+        reprobe_blocked_workday=reprobe_blocked_workday,
     ))
     return 0
 
@@ -445,6 +449,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         dest="review_mode",
         help="Fill each application form completely, then pause for approval before the final submit click",
+    )
+    apply_parser.add_argument(
+        "--reprobe-blocked-workday",
+        action="store_true",
+        dest="reprobe_blocked_workday",
+        help=(
+            "Retry Workday tenants marked blocked in workday_tenants for this run only. "
+            "Use with --apply-type workday when intentionally re-testing a tenant."
+        ),
     )
     subs.add_parser("check-email", help="Run email agent immediately")
     subs.add_parser("daily-summary", help="Print today's activity summary")

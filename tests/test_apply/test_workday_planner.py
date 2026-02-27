@@ -1,8 +1,8 @@
-"""Tests for Phase 15 Workday Planner — _parse_field_plan and _validate_advance."""
+"""Tests for field plan parser — _parse_field_plan."""
 
 import pytest
 
-from jobhunter.applicators.workday import _parse_field_plan
+from jobhunter.applicators.form_filling import _parse_field_plan
 
 
 class TestParseFieldPlan:

@@ -1,12 +1,15 @@
-"""Tests for Workday applicator — credential management, URL parsing, section routing."""
+"""Tests for FormFillingAgent — credential management, auth, domain extraction."""
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from jobhunter.applicators.workday import WorkdayApplicator, _extract_domain
+from jobhunter.applicators.form_filling import (
+    FormFillingAgent,
+    _extract_domain,
+)
 from jobhunter.crypto.vault import CredentialVault
 from jobhunter.db.engine import init_db
-from jobhunter.db.models import Credential
+from jobhunter.db.models import Credential, Job
 from jobhunter.db.repository import CredentialRepo
 from jobhunter.utils.profile_loader import UserProfile
 
@@ -58,13 +61,13 @@ def make_applicator(vault, cred_repo):
     page = MagicMock()
     llm = MagicMock()
     from pathlib import Path
-    return WorkdayApplicator(
+    return FormFillingAgent(
         page=page,
         llm=llm,
         profile=profile,
+        resume_path=Path("/tmp/resume.pdf"),
         vault=vault,
         cred_repo=cred_repo,
-        resume_path=Path("/tmp/resume.pdf"),
         vision=None,
     )
 
@@ -73,7 +76,6 @@ def make_applicator(vault, cred_repo):
 
 class TestExtractDomain:
     def test_myworkdayjobs(self):
-        # Full hostname used so different Workday tenants get separate credential entries
         url = "https://acme.myworkdayjobs.com/en-US/External/job/12345"
         assert _extract_domain(url) == "acme.myworkdayjobs.com"
 
@@ -156,36 +158,194 @@ class TestEmailVerificationWall:
         assert await applicator._is_email_verification_wall() is False
 
 
-# ── Section routing ───────────────────────────────────────────────────────────
+# ── Apply with no URL ────────────────────────────────────────────────────────
 
-class TestSectionRouting:
+class TestApplyNoUrl:
     @pytest.mark.asyncio
-    async def test_routes_personal_section(self, vault, cred_repo):
+    async def test_returns_false_with_no_url(self, vault, cred_repo):
         applicator = make_applicator(vault, cred_repo)
-        applicator._handle_personal_section = AsyncMock()
-        applicator._handle_generic_section = AsyncMock()
-        await applicator._handle_section("my information", "context")
-        applicator._handle_personal_section.assert_called_once()
-        applicator._handle_generic_section.assert_not_called()
+        from jobhunter.db.models import Application
+        job = Job(
+            linkedin_job_id="j1",
+            title="Engineer",
+            company="Acme",
+            job_url="https://linkedin.com/jobs/view/1",
+            external_url=None,
+            apply_type="external_workday",
+        )
+        app = Application(job_id=1)
+        result = await applicator.apply(job, app)
+        assert result is False
+
+
+class TestAuthHandling:
+    @pytest.mark.asyncio
+    async def test_handle_auth_uses_guest_button_first(self, vault, cred_repo):
+        applicator = make_applicator(vault, cred_repo)
+        guest_btn = MagicMock()
+        guest_btn.is_visible = AsyncMock(return_value=True)
+        guest_btn.click = AsyncMock()
+
+        def get_by_role_side_effect(role, **_kwargs):
+            if role == "button":
+                return MagicMock(first=guest_btn)
+            hidden = MagicMock()
+            hidden.is_visible = AsyncMock(return_value=False)
+            hidden.click = AsyncMock()
+            return MagicMock(first=hidden)
+
+        applicator._page.get_by_role.side_effect = get_by_role_side_effect
+        applicator._try_login = AsyncMock(return_value=False)
+        applicator._try_create_account = AsyncMock(return_value=False)
+
+        with patch("jobhunter.applicators.form_filling._GUEST_LABELS", ("Continue as Guest",)), patch(
+            "jobhunter.applicators.form_filling.random_delay", new=AsyncMock()
+        ):
+            result = await applicator._handle_auth_if_needed("https://acme.myworkdayjobs.com/apply")
+
+        assert result is True
+        guest_btn.click.assert_awaited_once()
+        applicator._try_login.assert_not_awaited()
+        applicator._try_create_account.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_routes_document_section(self, vault, cred_repo):
+    async def test_handle_auth_uses_stored_credentials_for_login(self, vault, cred_repo):
         applicator = make_applicator(vault, cred_repo)
-        applicator._handle_document_section = AsyncMock()
-        applicator._handle_generic_section = AsyncMock()
-        await applicator._handle_section("resume / cv", "context")
-        applicator._handle_document_section.assert_called_once()
+        cred_repo.upsert(
+            Credential(
+                domain="acme.myworkdayjobs.com",
+                username="jane@jobs.com",
+                password=vault.encrypt("SecretPass!23"),
+            )
+        )
+
+        hidden = MagicMock()
+        hidden.is_visible = AsyncMock(return_value=False)
+        hidden.click = AsyncMock()
+        applicator._page.get_by_role.return_value.first = hidden
+        applicator._try_login = AsyncMock(return_value=True)
+        applicator._try_create_account = AsyncMock(return_value=False)
+
+        with patch("jobhunter.applicators.form_filling._GUEST_LABELS", ("Continue as Guest",)):
+            result = await applicator._handle_auth_if_needed("https://acme.myworkdayjobs.com/apply")
+
+        assert result is True
+        applicator._try_login.assert_awaited_once_with("jane@jobs.com", "SecretPass!23")
+        applicator._try_create_account.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_routes_eeo_section(self, vault, cred_repo):
+    async def test_handle_auth_falls_back_to_create_account(self, vault, cred_repo):
         applicator = make_applicator(vault, cred_repo)
-        applicator._handle_eeo_section = AsyncMock()
-        await applicator._handle_section("voluntary self-identification", "context")
-        applicator._handle_eeo_section.assert_called_once()
+        hidden = MagicMock()
+        hidden.is_visible = AsyncMock(return_value=False)
+        hidden.click = AsyncMock()
+        applicator._page.get_by_role.return_value.first = hidden
+        applicator._try_login = AsyncMock(return_value=False)
+        applicator._try_create_account = AsyncMock(return_value=True)
+
+        with patch("jobhunter.applicators.form_filling._GUEST_LABELS", ("Continue as Guest",)):
+            result = await applicator._handle_auth_if_needed("https://acme.myworkdayjobs.com/apply")
+
+        assert result is True
+        applicator._try_create_account.assert_awaited_once_with(
+            "acme.myworkdayjobs.com", "jane@jobs.com"
+        )
+
+
+class TestTryLogin:
+    @pytest.mark.asyncio
+    async def test_try_login_success_with_labeled_fields(self, vault, cred_repo):
+        applicator = make_applicator(vault, cred_repo)
+
+        clickable = MagicMock()
+        clickable.is_visible = AsyncMock(return_value=True)
+        clickable.click = AsyncMock()
+        applicator._page.get_by_role.return_value.first = clickable
+
+        email_field = MagicMock()
+        email_field.is_visible = AsyncMock(return_value=True)
+        email_field.fill = AsyncMock()
+        password_field = MagicMock()
+        password_field.is_visible = AsyncMock(return_value=True)
+        password_field.fill = AsyncMock()
+
+        def get_by_label_side_effect(label, **_kwargs):
+            if "Email" in label or "Username" in label:
+                return email_field
+            return password_field
+
+        applicator._page.get_by_label.side_effect = get_by_label_side_effect
+
+        with patch("jobhunter.applicators.form_filling.micro_delay", new=AsyncMock()), patch(
+            "jobhunter.applicators.form_filling.random_delay", new=AsyncMock()
+        ):
+            result = await applicator._try_login("jane@jobs.com", "SecretPass!23")
+
+        assert result is True
+        email_field.fill.assert_awaited_once_with("jane@jobs.com")
+        password_field.fill.assert_awaited_once_with("SecretPass!23")
+        assert clickable.click.await_count >= 1
 
     @pytest.mark.asyncio
-    async def test_routes_unknown_to_generic(self, vault, cred_repo):
+    async def test_try_login_returns_false_when_email_field_missing(self, vault, cred_repo):
         applicator = make_applicator(vault, cred_repo)
-        applicator._handle_generic_section = AsyncMock()
-        await applicator._handle_section("something unexpected", "context")
-        applicator._handle_generic_section.assert_called_once()
+        hidden = MagicMock()
+        hidden.is_visible = AsyncMock(return_value=False)
+        hidden.click = AsyncMock()
+        applicator._page.get_by_role.return_value.first = hidden
+        applicator._page.get_by_label.side_effect = Exception("missing")
+
+        email_input = MagicMock()
+        email_input.is_visible = AsyncMock(return_value=False)
+        applicator._page.locator.return_value.first = email_input
+
+        result = await applicator._try_login("jane@jobs.com", "SecretPass!23")
+        assert result is False
+
+
+class TestTryCreateAccount:
+    @pytest.mark.asyncio
+    async def test_try_create_account_stores_encrypted_credentials(self, vault, cred_repo):
+        applicator = make_applicator(vault, cred_repo)
+
+        create_btn = MagicMock()
+        create_btn.is_visible = AsyncMock(return_value=True)
+        create_btn.click = AsyncMock()
+        applicator._page.get_by_role.return_value.first = create_btn
+
+        email_field = MagicMock()
+        email_field.is_visible = AsyncMock(return_value=True)
+        email_field.fill = AsyncMock()
+        applicator._page.get_by_label.return_value = email_field
+
+        pw_field_1 = MagicMock()
+        pw_field_1.is_visible = AsyncMock(return_value=True)
+        pw_field_1.fill = AsyncMock()
+        pw_field_2 = MagicMock()
+        pw_field_2.is_visible = AsyncMock(return_value=True)
+        pw_field_2.fill = AsyncMock()
+        pw_locator = MagicMock()
+        pw_locator.all = AsyncMock(return_value=[pw_field_1, pw_field_2])
+        applicator._page.locator.return_value = pw_locator
+
+        with patch("jobhunter.applicators.form_filling._generate_password", return_value="StrongPass!1"), patch(
+            "jobhunter.applicators.form_filling.micro_delay", new=AsyncMock()
+        ), patch("jobhunter.applicators.form_filling.random_delay", new=AsyncMock()):
+            result = await applicator._try_create_account("acme.myworkdayjobs.com", "jane@jobs.com")
+
+        assert result is True
+        email_field.fill.assert_awaited_once_with("jane+acme@jobs.com")
+        stored = cred_repo.get("acme.myworkdayjobs.com", "jane+acme@jobs.com")
+        assert stored is not None
+        assert vault.decrypt(stored.password) == "StrongPass!1"
+
+    @pytest.mark.asyncio
+    async def test_try_create_account_returns_false_when_create_not_clickable(self, vault, cred_repo):
+        applicator = make_applicator(vault, cred_repo)
+        hidden = MagicMock()
+        hidden.is_visible = AsyncMock(return_value=False)
+        hidden.click = AsyncMock()
+        applicator._page.get_by_role.return_value.first = hidden
+
+        result = await applicator._try_create_account("acme.myworkdayjobs.com", "jane@jobs.com")
+        assert result is False

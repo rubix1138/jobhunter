@@ -4,6 +4,19 @@
 Automated job search & application system with three AI agents (search, apply, email).
 See `DESIGN.md` for full architecture and `pyproject.toml` for dependencies.
 
+## Latest Update (2026-02-27)
+- **ARCHITECTURE PIVOT**: Replaced `WorkdayApplicator` (4,089 lines) and `GenericApplicator` (298 lines) with a single `FormFillingAgent` (~577 lines) in `applicators/form_filling.py`.
+- FormFillingAgent is a universal applicator that uses AX tree + Vision + LLM planning instead of platform-specific CSS selectors. It handles any ATS (Workday, Greenhouse, Lever, iCIMS, etc.) through the same code path.
+- `apply_agent.py` dispatch simplified: `easy_apply` → LinkedInEasyApplicator, **everything else** → FormFillingAgent.
+- `applicators/workday.py` and `applicators/generic.py` have been **deleted**.
+- Added high-value Phase 19 unit tests for `_fill_current_page`, `_fill_field`, `_fill_select_field`, `_fill_radio_field`, `_advance_or_submit`, `_detect_page_change`, auth helpers, and `apply()` loop edge cases.
+- `tests/test_apply` now passes with **93 tests**.
+- Hardened apply-type handling for LinkedIn jobs:
+  - no longer force `unknown -> easy_apply` during search,
+  - preflight re-detect `easy_apply` before material generation,
+  - stricter SDUI href guards to avoid recruiter/sidebar false positives.
+- Live reviewed run (`run_id=147`) after DB reset/requeue confirmed reevaluation of previously skipped jobs and yielded `1 submitted, 9 failed/skipped` (auth walls/stuck external forms remain primary blockers).
+
 ## Quick Start
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
@@ -15,7 +28,7 @@ jobhunter init
 
 ## Running Tests
 ```bash
-pytest tests/   # 373 tests (Phase 16 — 3 new tests added)
+pytest tests/test_apply/   # 93 apply-path tests (Phase 19 focus)
 ```
 
 ## CLI Reference
@@ -29,7 +42,7 @@ jobhunter search-now --max-queries 2 --max-pages 1  # Fastest test: 1 result pag
 jobhunter apply-now               # One-shot apply run (full auto)
 jobhunter apply-now --dry-run     # Generate PDFs but do not submit
 jobhunter apply-now --review      # Fill forms, then pause for human approval before each submit
-jobhunter apply-now --apply-type workday            # Only attempt Workday jobs
+jobhunter apply-now --apply-type workday            # Only attempt Workday jobs (uses FormFillingAgent)
 jobhunter apply-now --apply-type workday,greenhouse # Multiple platforms (comma-separated)
 jobhunter apply-now --apply-type workday --dry-run  # Combine with other flags
 jobhunter check-email             # One-shot email agent run
@@ -59,6 +72,48 @@ jobhunter qa-log --app-id 42      # Show Q&A log for a specific application
 | 14 | Workday Form Hardening: Typeahead, Date Fields, Stuck Detection | ✅ Complete |
 | 15 | Planner-Actor-Validator Loop for Workday | ✅ Complete |
 | 16 | Workday Vision Fallback + Drop-Down Field Locator Hardening | ✅ Complete |
+| 19 | FormFillingAgent: Replace platform-specific applicators with universal agent | 🔄 In Progress |
+
+---
+
+## Phase 19 — In Progress 🔄
+
+**What changed:**
+- Deleted `applicators/workday.py` (4,089 lines) and `applicators/generic.py` (298 lines).
+- Created `applicators/form_filling.py` (~577 lines) — `FormFillingAgent` class.
+- Updated `agents/apply_agent.py` — dispatch is now two-way: `easy_apply` → LinkedInEasyApplicator, everything else → FormFillingAgent.
+- Updated tests: `test_workday_planner.py` imports `_parse_field_plan` from `form_filling`; `test_workday.py` and `test_generic_applicator.py` test `FormFillingAgent` directly.
+- 93 `tests/test_apply` passing with expanded FormFillingAgent + auth + loop coverage.
+- Easy Apply misclassification hardening shipped:
+  - search no longer force-maps `unknown` listings to `easy_apply`,
+  - apply agent re-detects `easy_apply` before resume/cover generation,
+  - SDUI link handling now validates href shape to avoid non-apply redirects.
+
+**What FormFillingAgent carries forward from Workday/Generic:**
+- `_parse_field_plan()` — identical JSON plan parser
+- `_build_profile_summary()` — identical compact profile for planner
+- `_plan_section()` / `_fill_current_page()` — extracted from `_llm_guided_section` / `_plan_section_llm`
+- `_fill_field()` — multi-strategy locator chain: `find_by_aria_label` → `get_by_label` → text-proximity XPath (9 approaches for select/dropdown)
+- `_fill_typeahead()` — type + wait for suggestions + click match
+- `_scan_radiogroups()` — broad `[role='radiogroup']` scan with label resolution
+- `_fill_radio_field()` — 4-approach radio locator (named group → filter by text → XPath ancestor → broad)
+- `_confirm_submission()` — text phrases + Vision
+- `_dismiss_modal()` — `[role='dialog']` detection → OK/Close buttons → Escape
+- `_upload_resume_if_needed()` — `input[type='file']` + Upload button click
+- Auth: guest flow → stored credential login → account creation (all via `get_by_role`/`get_by_label`, zero CSS selectors)
+
+**What was intentionally dropped:**
+- Workday section-name routing (`"My Information"` / `"My Experience"` / etc.) — LLM sees field labels directly
+- 4,089 lines of Workday CSS selectors — replaced by `get_by_role` / `get_by_label`
+- `_click_workday_option()` — generic click → `[role='option']` handles JS dropdowns
+- `_fill_split_date()` — LLM planner sees month/day/year as separate fields
+- 6 self-identify retry methods (~580 lines) — LLM reads visible labels
+- Workday tenant auth routing (`workday_tenants` table logic) — generic auth tries guest → login → create account
+- Gmail email verification — deferred; auth failures return False
+
+**Phase 19 testing status:**
+- Completed: `_fill_current_page`, `_fill_field`, `_fill_select_field` (key paths), `_fill_radio_field` (approaches 1-4), `_handle_auth_if_needed`, `_try_login`, `_try_create_account`, `_advance_or_submit`, `_detect_page_change`, and `apply()` loop edge cases.
+- Remaining: deeper targeted coverage for less-common select text-proximity branches and internal modal/upload helper paths.
 
 ---
 
@@ -112,12 +167,12 @@ jobhunter qa-log --app-id 42      # Show Q&A log for a specific application
 
 ---
 
-## Phase 5 — Complete ✅
+## Phase 5 — Complete ✅ (superseded by Phase 19)
 
-**What was built:**
-- `src/jobhunter/applicators/workday.py` — `WorkdayApplicator`: domain-based credential storage (encrypted), account creation with auto-generated password, login detection, multi-section form navigation (My Information, My Experience, Documents, Questions, Self-ID), `_pause_for_review()` before submit
-- `src/jobhunter/applicators/generic.py` — `GenericApplicator`: best-effort Vision-heavy fallback for unknown external ATSs, `_pause_for_review()` before submit
-- `src/jobhunter/crypto/vault.py` — `CredentialVault` used by Workday for per-domain encrypted credentials
+**What was built (now replaced):**
+- ~~`src/jobhunter/applicators/workday.py`~~ — **Deleted in Phase 19.** Replaced by `FormFillingAgent` in `applicators/form_filling.py`.
+- ~~`src/jobhunter/applicators/generic.py`~~ — **Deleted in Phase 19.** Replaced by `FormFillingAgent`.
+- `src/jobhunter/crypto/vault.py` — `CredentialVault` used by FormFillingAgent for per-domain encrypted credentials (unchanged)
 - 50 new unit tests (247 total passing)
 
 ---
@@ -351,12 +406,10 @@ No new tests (changes covered by existing structure). 349 tests still passing.
 
 **`ApplyAgent._dispatch()` wiring (`agents/apply_agent.py`)**:
 - Instantiates `QACacheRepo(self._conn)` once per dispatch
-- Passes `qa_cache=qa_cache` to all three applicators (`LinkedInEasyApplicator`, `WorkdayApplicator`, `GenericApplicator`)
-- All three `__init__` signatures updated with `qa_cache=None` parameter
+- Passes `qa_cache=qa_cache` to both applicators (`LinkedInEasyApplicator`, `FormFillingAgent`)
+- Both `__init__` signatures accept `qa_cache=None` parameter
 
-**Workday custom dropdown handler (`applicators/workday.py`)**:
-- `_get_workday_dropdown_options(container)` — clicks the `button[aria-haspopup='listbox']`, reads `[role='option']` texts, closes with Escape. Avoids committing to a selection during option discovery.
-- `_click_workday_option(container, answer)` — opens listbox, tries exact match then partial match fallback, clicks the matching option
+*Note: Phase 12 Workday-specific dropdown handler (`_click_workday_option`, `_get_workday_dropdown_options`) was removed in Phase 19. FormFillingAgent uses generic click → `[role='option']` instead.*
 - `_handle_generic_section()` now checks for `button[aria-haspopup='listbox']` **before** `<select>` — Workday forms use JS dropdowns, not native selects
 - Improved field container selectors: `[data-automation-id^='formField-']`, `[data-automation-id='questionContainer']`, GWT class fallbacks (`div.WGCQ`, `div.WM8K`)
 - `_write_qa_cache()` called for every answered field type (radio, dropdown, select, textarea, text)
