@@ -6,6 +6,7 @@ import os
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 from ..applicators.form_filling import FormFillingAgent
 from ..applicators.linkedin_easy import LinkedInEasyApplicator
@@ -13,12 +14,13 @@ from ..browser.context import BrowserSession
 from ..browser.stealth import application_delay
 from ..browser.vision import VisionAnalyzer
 from ..crypto.vault import CredentialVault
-from ..db.models import Application, Job
+from ..db.models import Application, Job, WorkdayTenant
 from ..db.repository import (
     ApplicationRepo,
     CredentialRepo,
     JobRepo,
     QACacheRepo,
+    WorkdayTenantRepo,
 )
 from ..llm.client import ClaudeClient
 from ..llm.cover_letter import (
@@ -36,6 +38,39 @@ from ..utils.profile_loader import UserProfile
 from .base import AgentError, AgentResult, BaseAgent, RetryableError
 
 logger = get_logger(__name__)
+
+_ERROR_MSG_MAX_LEN = 1000
+_SSO_COOLDOWN_DAYS = 14
+_CHALLENGE_COOLDOWN_DAYS = 3
+_MAX_FAILED_ATTEMPTS_PER_JOB = 3
+_MAX_CONSECUTIVE_SAME_FAILURES = 2
+
+
+def _format_applicator_failure(applicator: object, job: Job, page_url: Optional[str]) -> str:
+    """Build a concise DB-friendly failure message with context."""
+    reason = getattr(applicator, "failure_reason", None) or "Applicator returned False"
+    parts = [str(reason).strip()]
+    if job.apply_type:
+        parts.append(f"apply_type={job.apply_type}")
+    if page_url:
+        parts.append(f"url={page_url}")
+    return " | ".join(parts)[:_ERROR_MSG_MAX_LEN]
+
+
+def _extract_domain(url: Optional[str]) -> Optional[str]:
+    if not url:
+        return None
+    try:
+        return urlparse(url).hostname
+    except Exception:
+        return None
+
+
+def _failure_reason_prefix(error_message: Optional[str]) -> str:
+    """Normalize stored error into a stable reason prefix (before metadata pipe)."""
+    if not error_message:
+        return ""
+    return error_message.split(" | ", 1)[0].strip()
 
 
 class ApplyAgent(BaseAgent):
@@ -84,6 +119,8 @@ class ApplyAgent(BaseAgent):
         self._review_mode = review_mode
         self._apply_type_filter: Optional[list[str]] = apply_type_filter
         self._reprobe_blocked_workday = reprobe_blocked_workday
+        self._last_apply_failure_message: Optional[str] = None
+        self._blocked_domains_this_run: set[str] = set()
         self._vision = VisionAnalyzer(llm)
         self._vault = CredentialVault()  # reads FERNET_KEY from env
         # Try to initialise Gmail client for email verification flows (optional)
@@ -189,6 +226,52 @@ class ApplyAgent(BaseAgent):
         self, job: Job, job_repo: JobRepo, app_repo: ApplicationRepo
     ) -> bool:
         """Generate materials and apply. Returns True on submission."""
+        self._last_apply_failure_message = None
+        domain = _extract_domain(job.external_url)
+
+        if domain and domain in self._blocked_domains_this_run:
+            self.logger.info(
+                f"Skipping {job.title} @ {job.company} — domain {domain} was "
+                "blocked earlier in this run"
+            )
+            job_repo.update_status(job.id, "skipped")
+            return False
+        if domain and self._is_domain_in_sso_cooldown(domain):
+            self.logger.info(
+                f"Skipping {job.title} @ {job.company} — domain {domain} is in "
+                f"SSO cooldown ({_SSO_COOLDOWN_DAYS}d)"
+            )
+            job_repo.update_status(job.id, "skipped")
+            return False
+        if domain and self._is_domain_in_challenge_cooldown(domain):
+            self.logger.info(
+                f"Skipping {job.title} @ {job.company} — domain {domain} is in "
+                f"challenge cooldown ({_CHALLENGE_COOLDOWN_DAYS}d)"
+            )
+            job_repo.update_status(job.id, "skipped")
+            return False
+        retry_cap_reason = self._retry_cap_reason(job.id)
+        if retry_cap_reason:
+            self.logger.info(
+                f"Skipping {job.title} @ {job.company} — retry cap reached: {retry_cap_reason}"
+            )
+            job_repo.update_status(job.id, "skipped")
+            return False
+
+        # Skip known blocked Workday tenants unless explicitly reprobed.
+        if job.apply_type == "external_workday" and job.external_url:
+            if domain:
+                tenant_repo = WorkdayTenantRepo(self._conn)
+                tenant = tenant_repo.get(domain)
+                if tenant and tenant.status == "blocked" and not self._reprobe_blocked_workday:
+                    self.logger.info(
+                        f"Skipping {job.title} @ {job.company} — Workday tenant "
+                        f"{domain} is blocked (use --reprobe-blocked-workday to retry)"
+                    )
+                    job_repo.update_status(job.id, "skipped")
+                    return False
+                if tenant and tenant.status == "blocked" and self._reprobe_blocked_workday:
+                    self.logger.info(f"Reprobe enabled: retrying blocked Workday tenant {domain}")
 
         # Resolve apply type BEFORE spending LLM tokens on resume/cover letter.
         apply_type = job.apply_type or "unknown"
@@ -311,9 +394,22 @@ class ApplyAgent(BaseAgent):
             if success:
                 app_repo.mark_submitted(app_id)
                 job_repo.update_status(job.id, "applied")
+                self._update_workday_tenant_state(job, success=True, failure_message=None)
                 self.logger.info(f"Application submitted: {job.title} @ {job.company}")
             else:
-                app_repo.update_status(app_id, "failed", "Applicator returned False")
+                failure_msg = self._last_apply_failure_message or (
+                    f"Applicator returned False | apply_type={job.apply_type}"
+                )
+                if domain and (
+                    "Auth failed — cannot proceed" in failure_msg
+                    or "SSO-only auth wall" in failure_msg
+                    or "CAPTCHA detected — needs_review" in failure_msg
+                    or "Email verification wall — needs_review" in failure_msg
+                ):
+                    self._blocked_domains_this_run.add(domain)
+                self._update_workday_tenant_state(job, success=False, failure_message=failure_msg)
+                await self._capture_apply_failure_artifacts(job, "apply_failed", failure_msg)
+                app_repo.update_status(app_id, "failed", failure_msg)
                 self.logger.warning(f"Application failed: {job.title} @ {job.company}")
 
             return success
@@ -322,6 +418,130 @@ class ApplyAgent(BaseAgent):
             await self._capture_apply_failure_artifacts(job, "apply_exception", e)
             app_repo.update_status(app_id, "failed", str(e))
             raise
+
+    def _is_domain_in_sso_cooldown(self, domain: str) -> bool:
+        """Return True if domain recently failed with SSO-only auth wall."""
+        try:
+            row = self._conn.execute(
+                """
+                SELECT 1
+                FROM applications a
+                JOIN jobs j ON j.id = a.job_id
+                WHERE j.external_url LIKE ?
+                  AND a.status = 'failed'
+                  AND a.error_message LIKE 'SSO-only auth wall%'
+                  AND a.updated_at >= datetime('now', ?)
+                LIMIT 1
+                """,
+                (f"%{domain}%", f"-{_SSO_COOLDOWN_DAYS} days"),
+            ).fetchone()
+            return row is not None
+        except Exception:
+            return False
+
+    def _is_domain_in_challenge_cooldown(self, domain: str) -> bool:
+        """Return True if domain recently failed on captcha/email verification challenges."""
+        try:
+            row = self._conn.execute(
+                """
+                SELECT 1
+                FROM applications a
+                JOIN jobs j ON j.id = a.job_id
+                WHERE j.external_url LIKE ?
+                  AND a.status = 'failed'
+                  AND (
+                    a.error_message LIKE 'CAPTCHA detected — needs_review%'
+                    OR a.error_message LIKE 'Email verification wall — needs_review%'
+                  )
+                  AND a.updated_at >= datetime('now', ?)
+                LIMIT 1
+                """,
+                (f"%{domain}%", f"-{_CHALLENGE_COOLDOWN_DAYS} days"),
+            ).fetchone()
+            return row is not None
+        except Exception:
+            return False
+
+    def _retry_cap_reason(self, job_id: int) -> Optional[str]:
+        """Return retry-cap reason if this job should stop auto-retrying."""
+        try:
+            rows = self._conn.execute(
+                """
+                SELECT error_message
+                FROM applications
+                WHERE job_id = ? AND status = 'failed'
+                ORDER BY id DESC
+                """,
+                (job_id,),
+            ).fetchall()
+        except Exception:
+            return None
+
+        if not rows:
+            return None
+
+        failed_count = len(rows)
+        if failed_count >= _MAX_FAILED_ATTEMPTS_PER_JOB:
+            return f"{failed_count} failed attempts (cap={_MAX_FAILED_ATTEMPTS_PER_JOB})"
+
+        latest_reason = _failure_reason_prefix(rows[0]["error_message"])
+        if not latest_reason:
+            return None
+
+        streak = 0
+        for r in rows:
+            if _failure_reason_prefix(r["error_message"]) == latest_reason:
+                streak += 1
+            else:
+                break
+        if streak >= _MAX_CONSECUTIVE_SAME_FAILURES:
+            return (
+                f"{streak} consecutive failures with same reason "
+                f"({latest_reason!r}, cap={_MAX_CONSECUTIVE_SAME_FAILURES})"
+            )
+        return None
+
+    def _update_workday_tenant_state(
+        self,
+        job: Job,
+        success: bool,
+        failure_message: Optional[str],
+    ) -> None:
+        """Persist Workday tenant capabilities based on latest outcome."""
+        if job.apply_type != "external_workday":
+            return
+        domain = _extract_domain(job.external_url)
+        if not domain:
+            return
+        repo = WorkdayTenantRepo(self._conn)
+        existing = repo.get(domain)
+        now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+        if success:
+            repo.upsert(
+                WorkdayTenant(
+                    domain=domain,
+                    auth_mode="auto",
+                    status="active",
+                    notes=f"last_success_utc={now}",
+                    id=existing.id if existing else None,
+                )
+            )
+            return
+
+        if failure_message and (
+            "Auth failed — cannot proceed" in failure_message
+            or "SSO-only auth wall" in failure_message
+        ):
+            repo.upsert(
+                WorkdayTenant(
+                    domain=domain,
+                    auth_mode="sso_only" if "SSO-only auth wall" in failure_message else "signin_only",
+                    status="blocked",
+                    notes=f"blocked_auth_failure_utc={now}",
+                    id=existing.id if existing else None,
+                )
+            )
 
     async def _capture_apply_failure_artifacts(
         self,
@@ -472,6 +692,18 @@ class ApplyAgent(BaseAgent):
                 (application.id,),
             )
             self._conn.commit()
+
+        if not success:
+            page_url = None
+            try:
+                page_url = self._session.page.url
+            except Exception:
+                page_url = None
+            self._last_apply_failure_message = _format_applicator_failure(
+                applicator, job, page_url
+            )
+        else:
+            self._last_apply_failure_message = None
 
         return success
 

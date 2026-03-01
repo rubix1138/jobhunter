@@ -344,3 +344,57 @@ class TestQACacheIntegration:
                 await app.answer_question("What is your spirit animal?", "text")
 
         mock_cache.upsert.assert_not_called()
+
+
+class TestApplyFailureFormatting:
+    def test_includes_reason_type_and_url(self):
+        from jobhunter.agents.apply_agent import _format_applicator_failure
+        from jobhunter.db.models import Job
+
+        class DummyApplicator:
+            failure_reason = "Auth failed — cannot proceed"
+
+        job = Job(
+            linkedin_job_id="1",
+            title="Director",
+            company="Acme",
+            job_url="https://linkedin.com/jobs/view/1",
+            apply_type="external_workday",
+        )
+        msg = _format_applicator_failure(
+            DummyApplicator(),
+            job,
+            "https://wd5.myworkdayjobs.com/en-US/foo",
+        )
+        assert "Auth failed" in msg
+        assert "apply_type=external_workday" in msg
+        assert "url=https://wd5.myworkdayjobs.com/en-US/foo" in msg
+
+    def test_falls_back_to_generic_reason(self):
+        from jobhunter.agents.apply_agent import _format_applicator_failure
+        from jobhunter.db.models import Job
+
+        class DummyApplicator:
+            pass
+
+        job = Job(
+            linkedin_job_id="2",
+            title="Director",
+            company="Acme",
+            job_url="https://linkedin.com/jobs/view/2",
+            apply_type="external_other",
+        )
+        msg = _format_applicator_failure(DummyApplicator(), job, None)
+        assert msg.startswith("Applicator returned False")
+        assert "apply_type=external_other" in msg
+
+
+class TestFailureReasonHelpers:
+    def test_failure_reason_prefix_extracts_before_metadata(self):
+        from jobhunter.agents.apply_agent import _failure_reason_prefix
+        msg = "Auth failed — cannot proceed | apply_type=external_other | url=https://x"
+        assert _failure_reason_prefix(msg) == "Auth failed — cannot proceed"
+
+    def test_failure_reason_prefix_handles_empty(self):
+        from jobhunter.agents.apply_agent import _failure_reason_prefix
+        assert _failure_reason_prefix(None) == ""

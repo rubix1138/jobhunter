@@ -4,7 +4,7 @@
 
 Build an automated system with three AI agents to search LinkedIn for jobs, apply with custom-tailored resumes/cover letters (handling both LinkedIn Easy Apply and external sites like Workday), and monitor a dedicated Gmail inbox to track application status and escalate when human intervention is needed.
 
-## Current Design Decisions (2026-02-27)
+## Current Design Decisions (2026-03-01)
 
 - **Architecture pivot**: Replaced platform-specific applicators (`WorkdayApplicator` 4,089 lines, `GenericApplicator` 298 lines) with a single `FormFillingAgent` (~577 lines). LinkedIn Easy Apply stays separate (stable modal).
 - **No platform-specific CSS selectors**: FormFillingAgent uses only `get_by_role`, `get_by_label`, `find_by_aria_label`, and XPath text-proximity. Works across any ATS.
@@ -18,6 +18,19 @@ Build an automated system with three AI agents to search LinkedIn for jobs, appl
   1. Guest flow (try "Continue as Guest" / "Apply Without Account" labels)
   2. Stored credential login (per-domain, Fernet-encrypted)
   3. Account creation with email subaddressing + auto-generated password
+- **Auth reliability hardening**:
+  - auth actions must clear auth state (post-action transition verification),
+  - SSO-only auth walls are detected and tagged `needs_review`,
+  - email-first auth flows supported via intermediate Continue/Next handling and broader field selectors.
+- **Retry/cooldown policy (external apply)**:
+  - Domain cooldowns:
+    - `SSO-only auth wall`: 14 days
+    - `CAPTCHA/email verification`: 3 days
+  - Per-run domain suppression: once a domain fails with auth/challenge, later jobs on same domain are skipped in that run.
+  - **Retry-cap policy per job**:
+    - max failed attempts: 3
+    - max consecutive same-failure streak: 2
+    - capped jobs are marked `skipped` to prevent infinite loops.
 - **No manual auth handoff**: system remains fully automated.
 - **Apply-type hardening (LinkedIn)**:
   - do not force `unknown` to `easy_apply` during Easy Apply-filtered search,
@@ -25,6 +38,7 @@ Build an automated system with three AI agents to search LinkedIn for jobs, appl
   - tighten SDUI link validation (`openSDUIApplyFlow` / `/apply/`) to avoid recruiter/sidebar redirects.
 - **Diagnostics policy**:
   - preserve detailed apply artifacts and structured logs,
+  - persist failure reason + apply_type + URL in DB,
   - keep tests green between iterations before live reruns.
 
 ---
@@ -60,8 +74,8 @@ jobhunter/
 │   ├── resume_base.md           # Jinja2 resume template
 │   └── cover_letter_base.md     # Jinja2 cover letter template
 ├── src/jobhunter/
-│   ├── main.py                  # CLI entry point (run, search-now, apply-now, check-email, status, init, platform-stats)
-│   ├── scheduler.py             # APScheduler setup, agent registration
+│   ├── main.py                  # CLI entry point (run, search-now, apply-now, check-email, status, init, platform-stats, prepare-referral)
+│   ├── scheduler.py             # APScheduler setup, agent registration, run_referral_once()
 │   ├── db/
 │   │   ├── engine.py            # SQLite connection factory, WAL mode, migrations
 │   │   ├── schema.sql           # DDL for all tables
@@ -80,7 +94,8 @@ jobhunter/
 │   │   ├── base.py              # BaseAgent ABC: lifecycle, retry, logging, agent_runs tracking
 │   │   ├── search_agent.py      # LinkedIn search, parse, score, store
 │   │   ├── apply_agent.py       # Job selection, material generation, applicator dispatch
-│   │   └── email_agent.py       # Gmail poll, classify, link to job, act/forward
+│   │   ├── email_agent.py       # Gmail poll, classify, link to job, act/forward
+│   │   └── referral_agent.py    # generate_referral_materials(): fetch posting → Opus PDFs (no DB/form touch)
 │   ├── applicators/
 │   │   ├── base.py              # BaseApplicator ABC: answer_question(), handle_stuck_page()
 │   │   ├── linkedin_easy.py     # Easy Apply modal multi-step handler

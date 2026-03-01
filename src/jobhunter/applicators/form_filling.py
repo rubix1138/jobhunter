@@ -71,7 +71,24 @@ _CONFIRM_TEXTS = [
 _AUTH_KEYWORDS = [
     "sign in", "log in", "login", "create account", "register",
     "sign up", "enter your email", "enter your password",
+    "single sign-on", "single sign on", "sso", "okta", "microsoft",
+    "azure ad", "identity provider",
 ]
+
+_SSO_KEYWORDS = [
+    "single sign-on",
+    "single sign on",
+    "sso",
+    "okta",
+    "azure ad",
+    "microsoft sign in",
+    "identity provider",
+]
+
+_AUTH_CONTROL_PATTERN = re.compile(
+    r"sign in|log in|login|create account|register|sign up|single sign[- ]on|sso|continue with",
+    re.IGNORECASE,
+)
 
 _GUEST_LABELS = (
     "Continue as Guest",
@@ -217,18 +234,17 @@ class FormFillingAgent(BaseApplicator):
     async def apply(self, job: Job, application: Application) -> bool:
         """Navigate to the application page and attempt to fill + submit."""
         self._job = job
+        self.failure_reason = None
         self.logger.info(f"FormFillingAgent: {job.title} @ {job.company}")
 
         url = job.external_url
         if not url:
-            self.logger.error("No external URL for application")
-            return False
+            return self._fail("No external URL for application", level="error")
 
         try:
             await self._page.goto(url, wait_until="domcontentloaded")
         except PlaywrightTimeout:
-            self.logger.error(f"Timeout loading: {url}")
-            return False
+            return self._fail(f"Timeout loading application page: {url}", level="error")
 
         await random_delay(2.0, 4.0)
         context = f"{job.title} at {job.company}"
@@ -236,9 +252,14 @@ class FormFillingAgent(BaseApplicator):
         # Auth detection & handling
         if await self._looks_like_auth_page():
             if not await self._handle_auth_if_needed(url):
-                self.logger.warning("Auth failed — cannot proceed")
-                return False
+                if self.failure_reason:
+                    return False
+                return self._fail("Auth failed — cannot proceed")
             await random_delay(1.5, 3.0)
+
+        # Ensure we are actually on an application form, not a listing/search page.
+        if not await self._ensure_on_application_form(context):
+            return self._fail("Not on application form (listing/search page)")
 
         # Main form-filling loop
         prev_url = self._page.url
@@ -257,22 +278,21 @@ class FormFillingAgent(BaseApplicator):
             # Check for auth wall mid-flow
             if page_num > 1 and await self._looks_like_auth_page():
                 if not await self._handle_auth_if_needed(url):
-                    return False
+                    if self.failure_reason:
+                        return False
+                    return self._fail("Auth wall encountered mid-flow")
                 await random_delay(1.0, 2.0)
 
             # Check for email verification wall
             if await self._is_email_verification_wall():
-                self.logger.warning("Email verification wall — needs_review")
-                return False
+                return self._fail("Email verification wall — needs_review")
 
             # Check for CAPTCHA
             state = await self._assess_current_state(context)
             if state == "captcha":
-                self.logger.warning("CAPTCHA detected — needs_review")
-                return False
+                return self._fail("CAPTCHA detected — needs_review")
             if state == "error":
-                self.logger.warning("Error page detected")
-                return False
+                return self._fail("Error page detected")
 
             # Dismiss any modal dialogs
             await self._dismiss_modal()
@@ -291,8 +311,10 @@ class FormFillingAgent(BaseApplicator):
                 if await self._confirm_submission():
                     self.logger.info("Application confirmed submitted")
                     return True
-                # Check if the page changed — may still be a success
-                self.logger.info("Submit clicked but confirmation unclear")
+                # Avoid false positives: if form is still present, require review.
+                if await self._has_form_signals():
+                    return self._fail("Submit clicked but confirmation unclear — needs_review")
+                self.logger.info("Submit clicked and form disappeared (implicit success)")
                 return True
 
             # Stuck detection
@@ -301,8 +323,7 @@ class FormFillingAgent(BaseApplicator):
                 stuck_count += 1
                 self.logger.warning(f"Page did not change (stuck_count={stuck_count})")
                 if stuck_count >= 3:
-                    self.logger.error("Stuck for 3 consecutive pages — giving up")
-                    return False
+                    return self._fail("Stuck for 3 consecutive pages — giving up", level="error")
                 # Try scrolling and filling any remaining fields
                 await scroll_to_bottom(self._page, pause_s=0.5, max_scrolls=3)
                 await self._fill_current_page(context)
@@ -314,7 +335,15 @@ class FormFillingAgent(BaseApplicator):
             prev_heading = await self._get_page_heading()
             await random_delay(1.0, 2.5)
 
-        self.logger.warning(f"Exceeded {_MAX_PAGES} pages — giving up")
+        return self._fail(f"Exceeded {_MAX_PAGES} pages — giving up")
+
+    def _fail(self, reason: str, level: str = "warning") -> bool:
+        """Record a machine-readable failure reason and emit a single log line."""
+        self.failure_reason = reason
+        if level == "error":
+            self.logger.error(reason)
+        else:
+            self.logger.warning(reason)
         return False
 
     # ── Page state assessment ─────────────────────────────────────────────────
@@ -326,7 +355,7 @@ class FormFillingAgent(BaseApplicator):
             content = (await self._page.content()).lower()
             if any(phrase in content for phrase in _CONFIRM_TEXTS):
                 return "submitted"
-            if "captcha" in content or "recaptcha" in content:
+            if await self._has_captcha_markers(content):
                 return "captcha"
         except Exception:
             pass
@@ -346,12 +375,58 @@ class FormFillingAgent(BaseApplicator):
                     purpose="form_page_assessment",
                 )
                 state = text.strip().lower().split()[0] if text else "form"
-                if state in ("form", "captcha", "error", "submitted", "auth"):
+                if state == "captcha":
+                    # Vision-only captcha guesses are noisy; require concrete page markers.
+                    if await self._has_captcha_markers():
+                        return "captcha"
+                    return "form"
+                if state in ("form", "error", "submitted", "auth"):
                     return state
             except Exception:
                 pass
 
         return "form"
+
+    async def _has_captcha_markers(self, content: Optional[str] = None) -> bool:
+        """Detect captcha using concrete DOM/text markers."""
+        lowered = content
+        if lowered is None:
+            try:
+                lowered = (await self._page.content()).lower()
+            except Exception:
+                lowered = ""
+        if any(
+            token in lowered
+            for token in (
+                "g-recaptcha",
+                "hcaptcha",
+                "captcha challenge",
+                "i'm not a robot",
+                "i am not a robot",
+                "cf-turnstile",
+            )
+        ):
+            return True
+        selectors = (
+            "iframe[src*='recaptcha']",
+            "iframe[src*='hcaptcha']",
+            "iframe[src*='turnstile']",
+            "[class*='captcha']",
+            "[id*='captcha']",
+        )
+        for sel in selectors:
+            try:
+                loc = self._page.locator(sel)
+                count = await loc.count()
+                for i in range(min(count, 3)):
+                    try:
+                        if await loc.nth(i).is_visible(timeout=250):
+                            return True
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+        return False
 
     # ── Form filling ──────────────────────────────────────────────────────────
 
@@ -909,13 +984,45 @@ class FormFillingAgent(BaseApplicator):
         """Check if the current page is an auth wall."""
         try:
             content = (await self._page.content()).lower()
-            return any(kw in content for kw in _AUTH_KEYWORDS)
+            has_auth_text = any(kw in content for kw in _AUTH_KEYWORDS)
+            if not has_auth_text:
+                return False
+
+            has_password_field = False
+            try:
+                has_password_field = await self._page.locator("input[type='password']").count() > 0
+            except Exception:
+                pass
+
+            has_auth_controls = await self._has_auth_controls()
+
+            # If page looks like an application form and has no password/auth controls,
+            # avoid false auth classification (common on Lever/Oracle pages).
+            has_form_signals = await self._has_form_signals()
+            if has_form_signals and not has_password_field and not has_auth_controls:
+                return False
+
+            return has_password_field or has_auth_controls
         except Exception:
             return False
+
+    async def _has_auth_controls(self) -> bool:
+        """Detect visible auth-specific buttons/links."""
+        for role in ("button", "link"):
+            try:
+                el = self._page.get_by_role(role, name=_AUTH_CONTROL_PATTERN).first
+                if await el.is_visible(timeout=400):
+                    return True
+            except Exception:
+                pass
+        return False
 
     async def _handle_auth_if_needed(self, url: str) -> bool:
         """Try guest flow → stored login → account creation."""
         domain = _extract_domain(url)
+
+        if await self._looks_like_sso_only_page():
+            return self._fail("SSO-only auth wall — needs_review")
 
         # Try guest flow first
         for guest_label in _GUEST_LABELS:
@@ -927,7 +1034,9 @@ class FormFillingAgent(BaseApplicator):
                     self.logger.info(f"Guest flow: clicking '{guest_label}'")
                     await btn.click()
                     await random_delay(1.5, 3.0)
-                    return True
+                    if await self._wait_for_post_auth_transition():
+                        return True
+                    self.logger.info("Guest click did not clear auth wall")
             except Exception:
                 pass
             # Also try links
@@ -939,7 +1048,9 @@ class FormFillingAgent(BaseApplicator):
                     self.logger.info(f"Guest flow (link): clicking '{guest_label}'")
                     await link.click()
                     await random_delay(1.5, 3.0)
-                    return True
+                    if await self._wait_for_post_auth_transition():
+                        return True
+                    self.logger.info("Guest link click did not clear auth wall")
             except Exception:
                 pass
 
@@ -950,21 +1061,143 @@ class FormFillingAgent(BaseApplicator):
             if cred:
                 self.logger.info(f"Found stored credentials for {domain}")
                 password = self._vault.decrypt(cred.password)
-                if await self._try_login(email, password):
+                if await self._try_login(email, password) and await self._wait_for_post_auth_transition():
                     return True
 
         # Try account creation
         if self._vault and self._cred_repo:
-            if await self._try_create_account(domain, email):
+            if await self._try_create_account(domain, email) and await self._wait_for_post_auth_transition():
                 return True
 
+        return False
+
+    async def _looks_like_sso_only_page(self) -> bool:
+        """Detect auth pages that likely require enterprise SSO and cannot be automated."""
+        try:
+            content = (await self._page.content()).lower()
+        except Exception:
+            return False
+        has_sso = any(kw in content for kw in _SSO_KEYWORDS)
+        if not has_sso:
+            return False
+        has_password_field = False
+        try:
+            has_password_field = await self._page.locator("input[type='password']").count() > 0
+        except Exception:
+            pass
+        has_auth_controls = await self._has_auth_controls()
+        if not has_auth_controls:
+            return False
+        has_form_signals = await self._has_form_signals()
+        if has_form_signals and not has_password_field:
+            return False
+        # SSO wording with no native password field is usually non-automatable here.
+        return has_sso and not has_password_field
+
+    async def _wait_for_post_auth_transition(self, timeout_s: float = 8.0) -> bool:
+        """Return True only after leaving auth wall and reaching possible form state."""
+        loop = asyncio.get_event_loop()
+        deadline = loop.time() + timeout_s
+        while loop.time() < deadline:
+            if not await self._looks_like_auth_page():
+                return True
+            await asyncio.sleep(0.4)
+        return False
+
+    async def _has_form_signals(self) -> bool:
+        """Heuristic: page appears to be an application form, not a listing shell."""
+        try:
+            if await self._page.locator("input[type='file']").count() > 0:
+                return True
+        except Exception:
+            pass
+
+        selectors = [
+            "input:not([type='hidden'])",
+            "textarea",
+            "select",
+            "button[type='submit']",
+        ]
+        for sel in selectors:
+            try:
+                loc = self._page.locator(sel)
+                count = await loc.count()
+                for i in range(min(count, 4)):
+                    if await loc.nth(i).is_visible(timeout=250):
+                        return True
+            except Exception:
+                pass
+
+        for label in (*_ADVANCE_LABELS, *_SUBMIT_LABELS, "Apply", "Apply Now", "Start Application"):
+            try:
+                btn = self._page.get_by_role("button", name=re.compile(re.escape(label), re.IGNORECASE)).first
+                if await btn.is_visible(timeout=250):
+                    return True
+            except Exception:
+                pass
+        return False
+
+    async def _ensure_on_application_form(self, context: str) -> bool:
+        """Try to enter form flow once if currently on a listing/detail page."""
+        if await self._has_form_signals():
+            return True
+
+        apply_labels = (
+            "Apply Now",
+            "Apply for this job",
+            "Start Application",
+            "Apply",
+        )
+        for label in apply_labels:
+            pattern = re.compile(re.escape(label), re.IGNORECASE)
+            for role in ("button", "link"):
+                try:
+                    el = self._page.get_by_role(role, name=pattern).first
+                    if await el.is_visible(timeout=800):
+                        self.logger.info(f"Preflight: clicking {role} '{label}' to enter form")
+                        await el.click()
+                        await random_delay(1.5, 3.0)
+                        if await self._looks_like_auth_page():
+                            if not await self._handle_auth_if_needed(self._page.url):
+                                return False
+                        if await self._has_form_signals():
+                            return True
+                except Exception:
+                    pass
+
+        # Non-ARIA fallback: some ATS render CTA as plain div/span.
+        for sel in (
+            "text=/apply now/i",
+            "text=/submit your application/i",
+            "text=/start application/i",
+            "button:has-text('APPLY NOW')",
+            "button:has-text('Apply Now')",
+        ):
+            try:
+                el = self._page.locator(sel).first
+                if await el.is_visible(timeout=800):
+                    self.logger.info(f"Preflight fallback: clicking selector {sel!r}")
+                    await el.click()
+                    await random_delay(1.5, 3.0)
+                    if await self._looks_like_auth_page():
+                        if not await self._handle_auth_if_needed(self._page.url):
+                            return False
+                    if await self._has_form_signals():
+                        return True
+            except Exception:
+                pass
+
+        # Vision fallback: detect obvious listing/search pages and fail fast.
+        state = await self._assess_current_state(context)
+        if state == "form" and await self._has_form_signals():
+            return True
         return False
 
     async def _try_login(self, email: str, password: str) -> bool:
         """Fill email + password by label, click submit."""
         try:
             # Click Sign In link/button first if visible
-            for sign_in_text in ("Sign In", "Log In", "Login"):
+            for sign_in_text in ("Sign In", "Log In", "Login", "Continue with Email"):
                 try:
                     btn = self._page.get_by_role(
                         "button", name=sign_in_text, exact=False
@@ -987,49 +1220,15 @@ class FormFillingAgent(BaseApplicator):
                     pass
 
             # Fill email
-            email_filled = False
-            for label in ("Email", "Email Address", "Username", "Email or Username"):
-                try:
-                    field = self._page.get_by_label(label, exact=False)
-                    if await field.is_visible(timeout=1_000):
-                        await field.fill(email)
-                        email_filled = True
-                        break
-                except Exception:
-                    pass
-            if not email_filled:
-                # Try input[type='email'] as fallback
-                try:
-                    inp = self._page.locator("input[type='email']").first
-                    if await inp.is_visible(timeout=1_000):
-                        await inp.fill(email)
-                        email_filled = True
-                except Exception:
-                    pass
-
+            email_filled = await self._fill_login_email(email)
             if not email_filled:
                 return False
 
-            # Fill password
-            password_filled = False
-            for label in ("Password", "Current Password"):
-                try:
-                    field = self._page.get_by_label(label, exact=False)
-                    if await field.is_visible(timeout=1_000):
-                        await field.fill(password)
-                        password_filled = True
-                        break
-                except Exception:
-                    pass
-            if not password_filled:
-                try:
-                    inp = self._page.locator("input[type='password']").first
-                    if await inp.is_visible(timeout=1_000):
-                        await inp.fill(password)
-                        password_filled = True
-                except Exception:
-                    pass
+            # Email-first flows often require an intermediate Continue/Next click
+            await self._click_login_continue_if_present()
 
+            # Fill password
+            password_filled = await self._fill_login_password(password)
             if not password_filled:
                 return False
 
@@ -1060,6 +1259,85 @@ class FormFillingAgent(BaseApplicator):
         except Exception as e:
             self.logger.debug(f"Login attempt failed: {e}")
             return False
+
+    async def _fill_login_email(self, email: str) -> bool:
+        """Fill login email/username field using label + selector fallbacks."""
+        for label in (
+            "Email",
+            "Email Address",
+            "Work Email",
+            "Username",
+            "Email or Username",
+            "User ID",
+            "Login ID",
+        ):
+            try:
+                field = self._page.get_by_label(label, exact=False).first
+                if await field.is_visible(timeout=700):
+                    await field.fill(email)
+                    return True
+            except Exception:
+                pass
+
+        selector_candidates = [
+            "input[type='email']",
+            "input[name*='email' i]",
+            "input[id*='email' i]",
+            "input[name*='user' i]",
+            "input[id*='user' i]",
+            "input[name*='login' i]",
+            "input[id*='login' i]",
+            "input[name*='identifier' i]",
+        ]
+        for sel in selector_candidates:
+            try:
+                inp = self._page.locator(sel).first
+                if await inp.is_visible(timeout=700):
+                    await inp.fill(email)
+                    return True
+            except Exception:
+                pass
+        return False
+
+    async def _fill_login_password(self, password: str) -> bool:
+        """Fill login password field using label + selector fallbacks."""
+        for label in ("Password", "Current Password", "Passcode"):
+            try:
+                field = self._page.get_by_label(label, exact=False).first
+                if await field.is_visible(timeout=700):
+                    await field.fill(password)
+                    return True
+            except Exception:
+                pass
+        try:
+            inp = self._page.locator("input[type='password']").first
+            if await inp.is_visible(timeout=700):
+                await inp.fill(password)
+                return True
+        except Exception:
+            pass
+        return False
+
+    async def _click_login_continue_if_present(self) -> None:
+        """Click intermediate continue buttons used in email-first auth flows."""
+        for label in ("Continue", "Next", "Proceed", "Verify", "Continue with Email"):
+            try:
+                btn = self._page.get_by_role("button", name=label, exact=False).first
+                if await btn.is_visible(timeout=700):
+                    await btn.click()
+                    await random_delay(0.8, 1.6)
+                    return
+            except Exception:
+                pass
+        try:
+            btn = self._page.locator("button[type='submit']").first
+            if await btn.is_visible(timeout=500):
+                txt = (await btn.inner_text()).strip().lower()
+                if txt in ("continue", "next"):
+                    await btn.click()
+                    await random_delay(0.8, 1.6)
+        except Exception:
+            pass
 
     async def _try_create_account(self, domain: str, email: str) -> bool:
         """Create account with email subaddressing, store encrypted credentials."""
