@@ -398,3 +398,12 @@ class TestFailureReasonHelpers:
     def test_failure_reason_prefix_handles_empty(self):
         from jobhunter.agents.apply_agent import _failure_reason_prefix
         assert _failure_reason_prefix(None) == ""
+
+    def test_manual_review_failure_detection(self):
+        from jobhunter.agents.apply_agent import _is_manual_review_failure
+        assert _is_manual_review_failure(
+            "CAPTCHA detected — needs_review | apply_type=external_lever"
+        ) is True
+        assert _is_manual_review_failure(
+            "Auth failed — cannot proceed | apply_type=external_other"
+        ) is False

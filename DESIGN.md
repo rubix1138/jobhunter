@@ -31,6 +31,13 @@ Build an automated system with three AI agents to search LinkedIn for jobs, appl
     - max failed attempts: 3
     - max consecutive same-failure streak: 2
     - capped jobs are marked `skipped` to prevent infinite loops.
+- **Manual-review orchestration**:
+  - Hard gates are parked as `applications.status='needs_review'` (instead of retried as generic failures):
+    - `SSO-only auth wall`
+    - `CAPTCHA detected`
+    - `Email verification wall`
+    - listing-only page / missing form entry
+    - ambiguous submit with no positive confirmation
 - **No manual auth handoff**: system remains fully automated.
 - **Apply-type hardening (LinkedIn)**:
   - do not force `unknown` to `easy_apply` during Easy Apply-filtered search,

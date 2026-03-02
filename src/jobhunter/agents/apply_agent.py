@@ -73,6 +73,19 @@ def _failure_reason_prefix(error_message: Optional[str]) -> str:
     return error_message.split(" | ", 1)[0].strip()
 
 
+def _is_manual_review_failure(error_message: str) -> bool:
+    """Failures that should be parked for human intervention instead of retried."""
+    reason = _failure_reason_prefix(error_message).lower()
+    manual_markers = (
+        "sso-only auth wall",
+        "captcha detected",
+        "email verification wall",
+        "submit clicked but confirmation unclear",
+        "not on application form",
+    )
+    return any(marker in reason for marker in manual_markers)
+
+
 class ApplyAgent(BaseAgent):
     """
     Selects qualified jobs without applications, generates tailored resume and
@@ -409,8 +422,15 @@ class ApplyAgent(BaseAgent):
                     self._blocked_domains_this_run.add(domain)
                 self._update_workday_tenant_state(job, success=False, failure_message=failure_msg)
                 await self._capture_apply_failure_artifacts(job, "apply_failed", failure_msg)
-                app_repo.update_status(app_id, "failed", failure_msg)
-                self.logger.warning(f"Application failed: {job.title} @ {job.company}")
+                if _is_manual_review_failure(failure_msg):
+                    app_repo.update_status(app_id, "needs_review", failure_msg)
+                    job_repo.update_status(job.id, "skipped")
+                    self.logger.warning(
+                        f"Application needs review: {job.title} @ {job.company}"
+                    )
+                else:
+                    app_repo.update_status(app_id, "failed", failure_msg)
+                    self.logger.warning(f"Application failed: {job.title} @ {job.company}")
 
             return success
 

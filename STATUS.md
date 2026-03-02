@@ -11,7 +11,8 @@ Last updated: 2026-03-01
   - auth transition verification (guest/login/create-account must actually clear auth),
   - preflight form-entry gate (avoid looping on listing pages),
   - domain cooldowns for known dead-end outcomes,
-  - retry-cap policy to stop repeated retries on same jobs.
+  - retry-cap policy to stop repeated retries on same jobs,
+  - manual-review parking for hard gates (`SSO`, `captcha`, `email verification`, listing-only, unclear submit).
 - Current queue is mostly constrained by external platform challenge gates (SSO/captcha/listing-only pages), not parser/classifier bugs.
 
 ## Key Files Changed (Recent)
