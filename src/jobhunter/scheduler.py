@@ -297,6 +297,45 @@ async def run_apply_once(
         await session.stop()
 
 
+async def run_referral_once(
+    settings: dict,
+    profile: UserProfile,
+    url: str,
+    output_dir: "Path",
+    title: Optional[str] = None,
+    company: Optional[str] = None,
+) -> "tuple[Path, Path]":
+    """Fetch a job posting URL and generate tailored resume + cover letter PDFs."""
+    from pathlib import Path as _Path
+
+    from .agents.referral_agent import generate_referral_materials
+
+    llm = _build_llm(settings)
+    output_dir = _Path(output_dir)
+
+    is_linkedin = "linkedin.com" in url.lower()
+    session: Optional[BrowserSession] = None
+
+    if is_linkedin:
+        session = BrowserSession()
+        await session.start()
+        await session.ensure_linkedin_session()
+
+    try:
+        return await generate_referral_materials(
+            url=url,
+            profile=profile,
+            llm=llm,
+            output_dir=output_dir,
+            title_override=title,
+            company_override=company,
+            browser_session=session,
+        )
+    finally:
+        if session is not None:
+            await session.stop()
+
+
 async def run_email_once(settings: dict, profile: UserProfile, db_path: str) -> None:
     """Run the email agent a single time (used by `check-email` command)."""
     llm = _build_llm(settings)
@@ -352,6 +391,40 @@ def build_daily_summary(conn) -> dict:
         (today,),
     ).fetchone()[0]
 
+    review_rows = conn.execute(
+        """
+        SELECT
+            a.id AS app_id,
+            a.job_id AS job_id,
+            a.updated_at AS updated_at,
+            a.error_message AS error_message,
+            j.title AS title,
+            j.company AS company,
+            j.apply_type AS apply_type,
+            j.job_url AS job_url,
+            j.external_url AS external_url
+        FROM applications a
+        JOIN jobs j ON j.id = a.job_id
+        WHERE a.status = 'needs_review'
+        ORDER BY datetime(a.updated_at) DESC
+        LIMIT 5
+        """
+    ).fetchall()
+
+    review_queue = [
+        {
+            "app_id": row["app_id"],
+            "job_id": row["job_id"],
+            "updated_at": row["updated_at"],
+            "error_message": row["error_message"],
+            "title": row["title"],
+            "company": row["company"],
+            "apply_type": row["apply_type"],
+            "url": row["external_url"] or row["job_url"],
+        }
+        for row in review_rows
+    ]
+
     return {
         "date": today,
         "jobs_found": jobs_found,
@@ -360,6 +433,7 @@ def build_daily_summary(conn) -> dict:
         "rejections": rejections,
         "interviews": interviews,
         "llm_cost_usd": round(float(llm_cost), 4),
+        "review_queue": review_queue,
     }
 
 
@@ -375,6 +449,18 @@ def print_daily_summary(summary: dict) -> None:
     print(f"  Rejections received:   {summary['rejections']:>6}")
     print(f"  Interview invites:     {summary['interviews']:>6}")
     print(f"  LLM spend today:       ${summary['llm_cost_usd']:>9.4f}")
+    review_queue = summary.get("review_queue", [])
+    print(f"  Needs-review queue:    {len(review_queue):>6}")
+    if review_queue:
+        print("  Top review items:")
+        for entry in review_queue:
+            title = entry.get("title") or "(unknown title)"
+            company = entry.get("company") or "(unknown company)"
+            reason = entry.get("error_message") or "(no reason)"
+            url = entry.get("url") or "(no url)"
+            print(f"    - App #{entry.get('app_id')} [{entry.get('apply_type')}] {title} @ {company}")
+            print(f"      Reason: {reason}")
+            print(f"      URL: {url}")
     print(f"{sep}\n")
 
 

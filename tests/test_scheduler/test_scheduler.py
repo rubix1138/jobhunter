@@ -12,6 +12,7 @@ from jobhunter.scheduler import (
     build_daily_summary,
     print_daily_summary,
     _build_llm,
+    run_referral_once,
 )
 
 
@@ -203,6 +204,38 @@ class TestBuildDailySummary:
         summary = build_daily_summary(conn)
         assert summary["jobs_found"] == 0
 
+    def test_includes_needs_review_queue_items(self, conn):
+        today = date.today().isoformat()
+        conn.execute(
+            "INSERT INTO jobs (linkedin_job_id, title, company, job_url, external_url, apply_type, status, discovered_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "r1",
+                "Director Security",
+                "Acme",
+                "https://linkedin.com/jobs/view/r1",
+                "https://jobs.example.com/apply/1",
+                "external_other",
+                "qualified",
+                today,
+            ),
+        )
+        job_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.execute(
+            "INSERT INTO applications (job_id, status, error_message, updated_at, created_at) "
+            "VALUES (?, 'needs_review', ?, ?, ?)",
+            (
+                job_id,
+                "CAPTCHA detected — needs_review | apply_type=external_other",
+                today,
+                today,
+            ),
+        )
+        conn.commit()
+        summary = build_daily_summary(conn)
+        assert len(summary["review_queue"]) == 1
+        assert summary["review_queue"][0]["job_id"] == job_id
+
 
 # ── print_daily_summary ───────────────────────────────────────────────────────
 
@@ -216,6 +249,7 @@ class TestPrintDailySummary:
             "rejections": 2,
             "interviews": 1,
             "llm_cost_usd": 4.1234,
+            "review_queue": [],
         }
         print_daily_summary(summary)
         out = capsys.readouterr().out
@@ -230,6 +264,7 @@ class TestPrintDailySummary:
             "rejections": 2,
             "interviews": 1,
             "llm_cost_usd": 4.1234,
+            "review_queue": [],
         }
         print_daily_summary(summary)
         out = capsys.readouterr().out
@@ -239,6 +274,31 @@ class TestPrintDailySummary:
         assert "2" in out
         assert "1" in out
         assert "4.1234" in out
+
+    def test_outputs_review_queue_section(self, capsys):
+        summary = {
+            "date": "2024-06-15",
+            "jobs_found": 1,
+            "apps_submitted": 0,
+            "emails_processed": 0,
+            "rejections": 0,
+            "interviews": 0,
+            "llm_cost_usd": 0.0,
+            "review_queue": [
+                {
+                    "app_id": 77,
+                    "apply_type": "external_other",
+                    "title": "Director Security",
+                    "company": "Acme",
+                    "error_message": "CAPTCHA detected — needs_review",
+                    "url": "https://jobs.example.com/apply/1",
+                }
+            ],
+        }
+        print_daily_summary(summary)
+        out = capsys.readouterr().out
+        assert "Needs-review queue" in out
+        assert "App #77" in out
 
 
 # ── _build_llm ────────────────────────────────────────────────────────────────
@@ -258,6 +318,77 @@ class TestBuildLlm:
                 sonnet_model="claude-sonnet-4-6",
                 opus_model="claude-opus-4-6",
             )
+
+
+class TestRunReferralOnce:
+    @pytest.mark.asyncio
+    async def test_non_linkedin_url_skips_browser_session(self, settings, profile):
+        from pathlib import Path
+
+        fake_llm = MagicMock()
+        resume_path = Path("/tmp/resume.pdf")
+        cover_path = Path("/tmp/cover.pdf")
+
+        with (
+            patch("jobhunter.scheduler._build_llm", return_value=fake_llm),
+            patch("jobhunter.scheduler.BrowserSession") as MockSession,
+            patch(
+                "jobhunter.agents.referral_agent.generate_referral_materials",
+                new=AsyncMock(return_value=(resume_path, cover_path)),
+            ) as mock_generate,
+        ):
+            out_resume, out_cover = await run_referral_once(
+                settings=settings,
+                profile=profile,
+                url="https://example.com/jobs/123",
+                output_dir="data/resumes",
+            )
+
+        assert (out_resume, out_cover) == (resume_path, cover_path)
+        MockSession.assert_not_called()
+        kwargs = mock_generate.await_args.kwargs
+        assert kwargs["url"] == "https://example.com/jobs/123"
+        assert kwargs["profile"] is profile
+        assert kwargs["llm"] is fake_llm
+        assert kwargs["output_dir"] == Path("data/resumes")
+        assert kwargs["title_override"] is None
+        assert kwargs["company_override"] is None
+        assert kwargs["browser_session"] is None
+
+    @pytest.mark.asyncio
+    async def test_linkedin_url_uses_and_stops_browser_session(self, settings, profile):
+        from pathlib import Path
+
+        fake_llm = MagicMock()
+        fake_session = MagicMock()
+        fake_session.start = AsyncMock()
+        fake_session.ensure_linkedin_session = AsyncMock()
+        fake_session.stop = AsyncMock()
+
+        with (
+            patch("jobhunter.scheduler._build_llm", return_value=fake_llm),
+            patch("jobhunter.scheduler.BrowserSession", return_value=fake_session),
+            patch(
+                "jobhunter.agents.referral_agent.generate_referral_materials",
+                new=AsyncMock(return_value=(Path("/tmp/r.pdf"), Path("/tmp/c.pdf"))),
+            ) as mock_generate,
+        ):
+            await run_referral_once(
+                settings=settings,
+                profile=profile,
+                url="https://www.linkedin.com/jobs/view/123",
+                output_dir=Path("data/resumes"),
+                title="Security Engineer",
+                company="Acme",
+            )
+
+        fake_session.start.assert_awaited_once()
+        fake_session.ensure_linkedin_session.assert_awaited_once()
+        fake_session.stop.assert_awaited_once()
+        kwargs = mock_generate.await_args.kwargs
+        assert kwargs["browser_session"] is fake_session
+        assert kwargs["title_override"] == "Security Engineer"
+        assert kwargs["company_override"] == "Acme"
 
     def test_uses_default_models_when_not_configured(self):
         with patch("jobhunter.scheduler.ClaudeClient") as MockClient:
