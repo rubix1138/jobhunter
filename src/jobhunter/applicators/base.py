@@ -79,6 +79,7 @@ class BaseApplicator(ABC):
         self._qa_cache = qa_cache
         self.logger = get_logger(f"jobhunter.{self.__class__.__name__}")
         self._qa_log: list[dict] = []   # record of all Q&A for the application
+        self.failure_reason: Optional[str] = None
 
     # ── Profile system blocks (prompt caching) ────────────────────────────────
 
@@ -303,7 +304,7 @@ TECHNICAL SKILLS:
             r"veteran": aa.veteran_status,
             r"gender": aa.gender,
             r"race|ethnic": aa.ethnicity,
-            r"how did you hear|referral|source": aa.how_did_you_hear,
+            r"how did you hear|referr|source": aa.how_did_you_hear,
             r"travel|willing to travel": aa.willing_to_travel,
             r"relocat": "Yes" if self._profile.personal.willing_to_relocate else "No",
             r"work.?authoriz|eligible to work|authorized|legally eligible": "Yes",

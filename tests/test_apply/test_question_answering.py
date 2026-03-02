@@ -134,6 +134,11 @@ class TestProfileAnswers:
         result = app._answer_from_profile("Why do you want to work here at our company?", None)
         assert result == "I admire your engineering culture."
 
+    def test_referred_question_uses_how_did_you_hear_answer(self):
+        app = make_applicator()
+        result = app._answer_from_profile("Who referred you to this position?", None)
+        assert result == "LinkedIn"
+
     def test_radio_option_matching(self):
         app = make_applicator()
         options = ["Yes", "No", "Prefer not to answer"]
