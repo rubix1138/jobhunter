@@ -81,6 +81,12 @@ class TestBuildParser:
         args = parser.parse_args(["review-packet", "--limit", "10", "--output", "/tmp/review.md"])
         assert args.limit == 10
         assert args.output == "/tmp/review.md"
+        assert args.csv is False
+
+    def test_review_packet_accepts_csv_flag(self):
+        parser = build_parser()
+        args = parser.parse_args(["review-packet", "--csv"])
+        assert args.csv is True
 
 
 # ── _load_settings ────────────────────────────────────────────────────────────
@@ -321,3 +327,12 @@ class TestCmdReviewPacket:
         text = out_path.read_text()
         assert "Manual Review Packet" in text
         assert "No `needs_review` applications in queue." in text
+
+    def test_writes_csv_when_requested(self, tmp_path):
+        out_path = tmp_path / "packet.csv"
+        args = SimpleNamespace(limit=5, output=str(out_path), csv=True)
+        rc = cmd_review_packet(args)
+        assert rc == 0
+        assert out_path.exists()
+        text = out_path.read_text()
+        assert "app_id,job_id,apply_type" in text

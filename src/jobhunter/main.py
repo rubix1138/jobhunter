@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import csv
 import os
 import sys
 from datetime import datetime, timezone
@@ -489,44 +490,77 @@ def cmd_review_queue(args) -> int:
 
 
 def cmd_review_packet(args) -> int:
-    """Write a markdown packet for manual-review items."""
+    """Write a review packet for manual-review items (markdown or CSV)."""
     limit = max(1, int(getattr(args, "limit", 50)))
+    csv_mode = bool(getattr(args, "csv", False))
     raw_output = getattr(args, "output", None)
     if raw_output:
         output = Path(raw_output).expanduser()
     else:
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        output = Path("data/logs") / f"review_packet_{stamp}.md"
+        ext = "csv" if csv_mode else "md"
+        output = Path("data/logs") / f"review_packet_{stamp}.{ext}"
     output.parent.mkdir(parents=True, exist_ok=True)
 
     rows = _fetch_review_rows(limit)
 
-    lines = [
-        f"# Manual Review Packet ({len(rows)} items)",
-        "",
-        f"Generated UTC: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}",
-        "",
-    ]
-    if not rows:
-        lines.append("No `needs_review` applications in queue.")
-    else:
-        for row in rows:
-            latest_artifact = _latest_review_artifact(row["job_id"])
-            lines.extend(
+    if csv_mode:
+        with output.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(
                 [
-                    f"## App #{row['app_id']} | Job #{row['job_id']} | {row['apply_type']}",
-                    "",
-                    f"- Title: {row['title']}",
-                    f"- Company: {row['company']}",
-                    f"- Updated: {row['updated_at']}",
-                    f"- Reason: {row['error_message'] or '(none)'}",
-                    f"- URL: {row['external_url'] or row['job_url']}",
-                    f"- Artifact: {latest_artifact}",
-                    "",
+                    "app_id",
+                    "job_id",
+                    "apply_type",
+                    "title",
+                    "company",
+                    "updated_at",
+                    "reason",
+                    "url",
+                    "artifact",
                 ]
             )
+            for row in rows:
+                writer.writerow(
+                    [
+                        row["app_id"],
+                        row["job_id"],
+                        row["apply_type"],
+                        row["title"],
+                        row["company"],
+                        row["updated_at"],
+                        row["error_message"] or "",
+                        row["external_url"] or row["job_url"],
+                        _latest_review_artifact(row["job_id"]),
+                    ]
+                )
+    else:
+        lines = [
+            f"# Manual Review Packet ({len(rows)} items)",
+            "",
+            f"Generated UTC: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}",
+            "",
+        ]
+        if not rows:
+            lines.append("No `needs_review` applications in queue.")
+        else:
+            for row in rows:
+                latest_artifact = _latest_review_artifact(row["job_id"])
+                lines.extend(
+                    [
+                        f"## App #{row['app_id']} | Job #{row['job_id']} | {row['apply_type']}",
+                        "",
+                        f"- Title: {row['title']}",
+                        f"- Company: {row['company']}",
+                        f"- Updated: {row['updated_at']}",
+                        f"- Reason: {row['error_message'] or '(none)'}",
+                        f"- URL: {row['external_url'] or row['job_url']}",
+                        f"- Artifact: {latest_artifact}",
+                        "",
+                    ]
+                )
+        output.write_text("\n".join(lines), encoding="utf-8")
 
-    output.write_text("\n".join(lines), encoding="utf-8")
     print(f"Review packet written: {output}")
     return 0
 
@@ -621,6 +655,12 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         default=None,
         help="Output markdown path (default: data/logs/review_packet_<timestamp>.md)",
+    )
+    packet_parser.add_argument(
+        "--csv",
+        action="store_true",
+        dest="csv",
+        help="Write packet as CSV instead of Markdown",
     )
     subs.add_parser("platform-stats", help="Show breakdown of external ATS platforms found during search")
     qa_parser = subs.add_parser("qa-log", help="Show Q&A log for an application")
