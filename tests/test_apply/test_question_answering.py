@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from jobhunter.applicators.base import (
     BaseApplicator, QuestionAnswer, _match_option, _normalize_question, _options_hash,
 )
+from jobhunter.db.engine import init_db
 from jobhunter.utils.profile_loader import UserProfile
 
 
@@ -407,3 +408,83 @@ class TestFailureReasonHelpers:
         assert _is_manual_review_failure(
             "Auth failed — cannot proceed | apply_type=external_other"
         ) is False
+
+
+class TestRetryCapPolicy:
+    def _seed_job(self, conn, linkedin_job_id: str) -> int:
+        conn.execute(
+            """
+            INSERT INTO jobs (
+                linkedin_job_id, title, company, job_url, apply_type, status
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                linkedin_job_id,
+                "Engineer",
+                "Acme",
+                f"https://example.com/{linkedin_job_id}",
+                "external_other",
+                "qualified",
+            ),
+        )
+        return int(conn.execute("SELECT id FROM jobs ORDER BY id DESC LIMIT 1").fetchone()[0])
+
+    def _seed_failed_app(self, conn, job_id: int, error_message: str) -> None:
+        conn.execute(
+            """
+            INSERT INTO applications (job_id, status, error_message, updated_at)
+            VALUES (?, 'failed', ?, datetime('now'))
+            """,
+            (job_id, error_message),
+        )
+
+    def _make_agent(self, tmp_path):
+        from jobhunter.agents.apply_agent import ApplyAgent
+
+        db_path = str(tmp_path / "retry_caps.db")
+        conn = init_db(db_path)
+        agent = ApplyAgent.__new__(ApplyAgent)
+        agent._conn = conn
+        return agent, conn
+
+    def test_retry_cap_none_when_no_failed_attempts(self, tmp_path):
+        agent, conn = self._make_agent(tmp_path)
+        job_id = self._seed_job(conn, "li-no-fails")
+        conn.commit()
+        assert agent._retry_cap_reason(job_id) is None
+        conn.close()
+
+    def test_retry_cap_triggers_on_failed_attempt_count(self, tmp_path):
+        agent, conn = self._make_agent(tmp_path)
+        job_id = self._seed_job(conn, "li-count-cap")
+        self._seed_failed_app(conn, job_id, "Auth failed — cannot proceed | apply_type=external_other")
+        self._seed_failed_app(conn, job_id, "Different failure | apply_type=external_other")
+        self._seed_failed_app(conn, job_id, "Another failure | apply_type=external_other")
+        conn.commit()
+
+        reason = agent._retry_cap_reason(job_id)
+        assert reason is not None
+        assert "3 failed attempts" in reason
+        conn.close()
+
+    def test_retry_cap_triggers_on_same_reason_streak(self, tmp_path):
+        agent, conn = self._make_agent(tmp_path)
+        job_id = self._seed_job(conn, "li-streak-cap")
+        self._seed_failed_app(conn, job_id, "Auth failed — cannot proceed | apply_type=external_other")
+        self._seed_failed_app(conn, job_id, "Auth failed — cannot proceed | apply_type=external_other")
+        conn.commit()
+
+        reason = agent._retry_cap_reason(job_id)
+        assert reason is not None
+        assert "2 consecutive failures with same reason" in reason
+        conn.close()
+
+    def test_retry_cap_does_not_trigger_when_streak_is_broken(self, tmp_path):
+        agent, conn = self._make_agent(tmp_path)
+        job_id = self._seed_job(conn, "li-streak-broken")
+        self._seed_failed_app(conn, job_id, "Auth failed — cannot proceed | apply_type=external_other")
+        self._seed_failed_app(conn, job_id, "Different failure | apply_type=external_other")
+        conn.commit()
+
+        assert agent._retry_cap_reason(job_id) is None
+        conn.close()
