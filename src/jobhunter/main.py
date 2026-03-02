@@ -587,6 +587,76 @@ def cmd_review_packet(args) -> int:
     return 0
 
 
+def cmd_review_resolve(args) -> int:
+    """Resolve a needs_review application as retry/skip/resolved."""
+    app_id = int(getattr(args, "app_id"))
+    action = str(getattr(args, "action"))
+    db_path = os.environ.get("DB_PATH", "data/jobhunter.db")
+    conn = init_db(db_path)
+    try:
+        row = conn.execute(
+            """
+            SELECT a.id AS app_id, a.status AS app_status, a.error_message AS error_message,
+                   a.job_id AS job_id, j.title AS title, j.company AS company, j.status AS job_status
+            FROM applications a
+            JOIN jobs j ON j.id = a.job_id
+            WHERE a.id = ?
+            """,
+            (app_id,),
+        ).fetchone()
+        if not row:
+            print(f"ERROR: Application #{app_id} not found.")
+            return 1
+        if row["app_status"] != "needs_review":
+            print(
+                f"ERROR: Application #{app_id} is status={row['app_status']!r}, "
+                "expected 'needs_review'."
+            )
+            return 1
+
+        if action == "retry":
+            conn.execute(
+                "UPDATE applications SET status='failed', updated_at=datetime('now') WHERE id=?",
+                (app_id,),
+            )
+            conn.execute(
+                "UPDATE jobs SET status='qualified', updated_at=datetime('now') WHERE id=?",
+                (row["job_id"],),
+            )
+            conn.commit()
+            print(
+                f"Application #{app_id} moved to failed for retry; "
+                f"job #{row['job_id']} re-queued as qualified."
+            )
+            return 0
+
+        if action == "skip":
+            conn.execute(
+                "UPDATE applications SET status='reviewed', updated_at=datetime('now') WHERE id=?",
+                (app_id,),
+            )
+            conn.execute(
+                "UPDATE jobs SET status='skipped', updated_at=datetime('now') WHERE id=?",
+                (row["job_id"],),
+            )
+            conn.commit()
+            print(f"Application #{app_id} marked reviewed; job #{row['job_id']} skipped.")
+            return 0
+
+        # action == resolved
+        conn.execute(
+            "UPDATE applications SET status='reviewed', updated_at=datetime('now') WHERE id=?",
+            (app_id,),
+        )
+        conn.commit()
+        print(
+            f"Application #{app_id} marked reviewed (job status unchanged: {row['job_status']})."
+        )
+        return 0
+    finally:
+        conn.close()
+
+
 # ── Parser ────────────────────────────────────────────────────────────────────
 
 def build_parser() -> argparse.ArgumentParser:
@@ -690,6 +760,25 @@ def build_parser() -> argparse.ArgumentParser:
         dest="open_only",
         help="Write de-duplicated actionable URLs (one per line) for quick opening",
     )
+    resolve_parser = subs.add_parser(
+        "review-resolve",
+        help="Resolve a needs_review application as retry/skip/resolved",
+    )
+    resolve_parser.add_argument(
+        "--app-id",
+        required=True,
+        type=int,
+        dest="app_id",
+        metavar="ID",
+        help="Application ID currently in needs_review state",
+    )
+    resolve_parser.add_argument(
+        "--action",
+        required=True,
+        choices=["retry", "skip", "resolved"],
+        dest="action",
+        help="Resolution action to apply",
+    )
     subs.add_parser("platform-stats", help="Show breakdown of external ATS platforms found during search")
     qa_parser = subs.add_parser("qa-log", help="Show Q&A log for an application")
     qa_parser.add_argument(
@@ -752,6 +841,7 @@ def app() -> None:
         "daily-summary": cmd_daily_summary,
         "review-queue": cmd_review_queue,
         "review-packet": cmd_review_packet,
+        "review-resolve": cmd_review_resolve,
         "qa-log": cmd_qa_log,
         "platform-stats": cmd_platform_stats,
         "prepare-referral": cmd_prepare_referral,

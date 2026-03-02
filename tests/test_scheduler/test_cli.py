@@ -12,6 +12,7 @@ from jobhunter.main import (
     cmd_init,
     cmd_prepare_referral,
     cmd_review_packet,
+    cmd_review_resolve,
     cmd_status,
     cmd_daily_summary,
     _load_settings,
@@ -53,7 +54,21 @@ class TestBuildParser:
                 break
         assert subparsers_action is not None
         commands = set(subparsers_action._name_parser_map.keys())
-        expected = {"init", "status", "run", "search-now", "apply-now", "check-email", "daily-summary", "review-queue", "review-packet", "qa-log", "platform-stats", "prepare-referral"}
+        expected = {
+            "init",
+            "status",
+            "run",
+            "search-now",
+            "apply-now",
+            "check-email",
+            "daily-summary",
+            "review-queue",
+            "review-packet",
+            "review-resolve",
+            "qa-log",
+            "platform-stats",
+            "prepare-referral",
+        }
         assert expected == commands
 
     def test_parser_accepts_log_level(self):
@@ -93,6 +108,17 @@ class TestBuildParser:
         parser = build_parser()
         args = parser.parse_args(["review-packet", "--open"])
         assert args.open_only is True
+
+    def test_review_resolve_accepts_required_flags(self):
+        parser = build_parser()
+        args = parser.parse_args(["review-resolve", "--app-id", "12", "--action", "retry"])
+        assert args.app_id == 12
+        assert args.action == "retry"
+
+    def test_review_resolve_requires_action(self):
+        parser = build_parser()
+        with pytest.raises(SystemExit):
+            parser.parse_args(["review-resolve", "--app-id", "12"])
 
 
 # ── _load_settings ────────────────────────────────────────────────────────────
@@ -357,3 +383,86 @@ class TestCmdReviewPacket:
         args = SimpleNamespace(limit=5, output=str(out_path), csv=True, open_only=True)
         rc = cmd_review_packet(args)
         assert rc == 2
+
+
+class TestCmdReviewResolve:
+    def _insert_job_and_app(self, db_path, app_status="needs_review", job_status="applied"):
+        conn = init_db(db_path)
+        conn.execute(
+            """
+            INSERT INTO jobs (
+                linkedin_job_id, title, company, job_url, apply_type, status
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "li-1",
+                "Staff Engineer",
+                "Acme",
+                "https://example.com/job/1",
+                "workday",
+                job_status,
+            ),
+        )
+        job_id = int(conn.execute("SELECT id FROM jobs ORDER BY id DESC LIMIT 1").fetchone()[0])
+        conn.execute(
+            "INSERT INTO applications (job_id, status, error_message) VALUES (?, ?, ?)",
+            (job_id, app_status, "manual review required"),
+        )
+        app_id = int(conn.execute("SELECT id FROM applications ORDER BY id DESC LIMIT 1").fetchone()[0])
+        conn.commit()
+        conn.close()
+        return job_id, app_id
+
+    def test_returns_one_when_application_not_found(self, db_path, capsys):
+        args = SimpleNamespace(app_id=9999, action="retry")
+        rc = cmd_review_resolve(args)
+        assert rc == 1
+        out = capsys.readouterr().out
+        assert "not found" in out
+
+    def test_returns_one_when_application_not_needs_review(self, db_path, capsys):
+        _, app_id = self._insert_job_and_app(db_path, app_status="failed")
+        args = SimpleNamespace(app_id=app_id, action="retry")
+        rc = cmd_review_resolve(args)
+        assert rc == 1
+        out = capsys.readouterr().out
+        assert "expected 'needs_review'" in out
+
+    def test_retry_moves_app_and_job_for_requeue(self, db_path):
+        job_id, app_id = self._insert_job_and_app(db_path, app_status="needs_review", job_status="blocked")
+        args = SimpleNamespace(app_id=app_id, action="retry")
+        rc = cmd_review_resolve(args)
+        assert rc == 0
+
+        conn = init_db(db_path)
+        app_row = conn.execute("SELECT status FROM applications WHERE id = ?", (app_id,)).fetchone()
+        job_row = conn.execute("SELECT status FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        conn.close()
+        assert app_row["status"] == "failed"
+        assert job_row["status"] == "qualified"
+
+    def test_skip_marks_reviewed_and_skips_job(self, db_path):
+        job_id, app_id = self._insert_job_and_app(db_path, app_status="needs_review", job_status="applied")
+        args = SimpleNamespace(app_id=app_id, action="skip")
+        rc = cmd_review_resolve(args)
+        assert rc == 0
+
+        conn = init_db(db_path)
+        app_row = conn.execute("SELECT status FROM applications WHERE id = ?", (app_id,)).fetchone()
+        job_row = conn.execute("SELECT status FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        conn.close()
+        assert app_row["status"] == "reviewed"
+        assert job_row["status"] == "skipped"
+
+    def test_resolved_marks_reviewed_and_keeps_job_status(self, db_path):
+        job_id, app_id = self._insert_job_and_app(db_path, app_status="needs_review", job_status="blocked")
+        args = SimpleNamespace(app_id=app_id, action="resolved")
+        rc = cmd_review_resolve(args)
+        assert rc == 0
+
+        conn = init_db(db_path)
+        app_row = conn.execute("SELECT status FROM applications WHERE id = ?", (app_id,)).fetchone()
+        job_row = conn.execute("SELECT status FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        conn.close()
+        assert app_row["status"] == "reviewed"
+        assert job_row["status"] == "blocked"
