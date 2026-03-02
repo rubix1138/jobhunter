@@ -490,21 +490,43 @@ def cmd_review_queue(args) -> int:
 
 
 def cmd_review_packet(args) -> int:
-    """Write a review packet for manual-review items (markdown or CSV)."""
+    """Write a review packet for manual-review items (markdown/csv/url list)."""
     limit = max(1, int(getattr(args, "limit", 50)))
     csv_mode = bool(getattr(args, "csv", False))
+    open_mode = bool(getattr(args, "open_only", False))
+    if csv_mode and open_mode:
+        print("ERROR: Use either --csv or --open, not both.")
+        return 2
     raw_output = getattr(args, "output", None)
     if raw_output:
         output = Path(raw_output).expanduser()
     else:
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        ext = "csv" if csv_mode else "md"
+        if open_mode:
+            ext = "txt"
+        else:
+            ext = "csv" if csv_mode else "md"
         output = Path("data/logs") / f"review_packet_{stamp}.{ext}"
     output.parent.mkdir(parents=True, exist_ok=True)
 
     rows = _fetch_review_rows(limit)
 
-    if csv_mode:
+    if open_mode:
+        urls = []
+        for row in rows:
+            url = row["external_url"] or row["job_url"]
+            if url:
+                urls.append(url)
+        # Preserve order while de-duplicating
+        seen = set()
+        deduped = []
+        for url in urls:
+            if url in seen:
+                continue
+            seen.add(url)
+            deduped.append(url)
+        output.write_text("\n".join(deduped) + ("\n" if deduped else ""), encoding="utf-8")
+    elif csv_mode:
         with output.open("w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(
@@ -661,6 +683,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         dest="csv",
         help="Write packet as CSV instead of Markdown",
+    )
+    packet_parser.add_argument(
+        "--open",
+        action="store_true",
+        dest="open_only",
+        help="Write de-duplicated actionable URLs (one per line) for quick opening",
     )
     subs.add_parser("platform-stats", help="Show breakdown of external ATS platforms found during search")
     qa_parser = subs.add_parser("qa-log", help="Show Q&A log for an application")

@@ -87,6 +87,12 @@ class TestBuildParser:
         parser = build_parser()
         args = parser.parse_args(["review-packet", "--csv"])
         assert args.csv is True
+        assert args.open_only is False
+
+    def test_review_packet_accepts_open_flag(self):
+        parser = build_parser()
+        args = parser.parse_args(["review-packet", "--open"])
+        assert args.open_only is True
 
 
 # ── _load_settings ────────────────────────────────────────────────────────────
@@ -336,3 +342,18 @@ class TestCmdReviewPacket:
         assert out_path.exists()
         text = out_path.read_text()
         assert "app_id,job_id,apply_type" in text
+
+    def test_writes_open_url_list_when_requested(self, tmp_path):
+        out_path = tmp_path / "packet.txt"
+        args = SimpleNamespace(limit=5, output=str(out_path), csv=False, open_only=True)
+        rc = cmd_review_packet(args)
+        assert rc == 0
+        assert out_path.exists()
+        # Empty queue in test DB => empty file
+        assert out_path.read_text() == ""
+
+    def test_rejects_csv_and_open_together(self, tmp_path):
+        out_path = tmp_path / "packet.txt"
+        args = SimpleNamespace(limit=5, output=str(out_path), csv=True, open_only=True)
+        rc = cmd_review_packet(args)
+        assert rc == 2
