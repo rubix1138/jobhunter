@@ -11,6 +11,7 @@ from jobhunter.main import (
     build_parser,
     cmd_init,
     cmd_prepare_referral,
+    cmd_review_packet,
     cmd_status,
     cmd_daily_summary,
     _load_settings,
@@ -52,7 +53,7 @@ class TestBuildParser:
                 break
         assert subparsers_action is not None
         commands = set(subparsers_action._name_parser_map.keys())
-        expected = {"init", "status", "run", "search-now", "apply-now", "check-email", "daily-summary", "review-queue", "qa-log", "platform-stats", "prepare-referral"}
+        expected = {"init", "status", "run", "search-now", "apply-now", "check-email", "daily-summary", "review-queue", "review-packet", "qa-log", "platform-stats", "prepare-referral"}
         assert expected == commands
 
     def test_parser_accepts_log_level(self):
@@ -74,6 +75,12 @@ class TestBuildParser:
         parser = build_parser()
         args = parser.parse_args(["review-queue", "--limit", "5"])
         assert args.limit == 5
+
+    def test_review_packet_accepts_output(self):
+        parser = build_parser()
+        args = parser.parse_args(["review-packet", "--limit", "10", "--output", "/tmp/review.md"])
+        assert args.limit == 10
+        assert args.output == "/tmp/review.md"
 
 
 # ── _load_settings ────────────────────────────────────────────────────────────
@@ -302,3 +309,15 @@ class TestCmdPrepareReferral:
         assert kwargs["title"] == "CISO"
         assert kwargs["company"] == "Acme"
         assert kwargs["output_dir"] == Path("/tmp/referral-out")
+
+
+class TestCmdReviewPacket:
+    def test_writes_packet_file_when_queue_empty(self, tmp_path):
+        out_path = tmp_path / "packet.md"
+        args = SimpleNamespace(limit=5, output=str(out_path))
+        rc = cmd_review_packet(args)
+        assert rc == 0
+        assert out_path.exists()
+        text = out_path.read_text()
+        assert "Manual Review Packet" in text
+        assert "No `needs_review` applications in queue." in text

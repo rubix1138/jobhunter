@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -428,9 +429,8 @@ def cmd_daily_summary(args) -> int:
     return 0
 
 
-def cmd_review_queue(args) -> int:
-    """Print applications that require manual review with latest artifact path."""
-    limit = max(1, int(getattr(args, "limit", 20)))
+def _fetch_review_rows(limit: int) -> list:
+    """Load needs-review application rows from DB."""
     db_path = os.environ.get("DB_PATH", "data/jobhunter.db")
     conn = init_db(db_path)
     try:
@@ -456,16 +456,28 @@ def cmd_review_queue(args) -> int:
         ).fetchall()
     finally:
         conn.close()
+    return rows
+
+
+def _latest_review_artifact(job_id: int) -> str:
+    """Return newest failure context artifact path for this job id."""
+    failures_dir = Path("data/logs/failures")
+    artifacts = sorted(failures_dir.glob(f"job{job_id}_*.txt")) if failures_dir.exists() else []
+    return str(artifacts[-1]) if artifacts else "(none)"
+
+
+def cmd_review_queue(args) -> int:
+    """Print applications that require manual review with latest artifact path."""
+    limit = max(1, int(getattr(args, "limit", 20)))
+    rows = _fetch_review_rows(limit)
 
     print(f"Manual Review Queue ({len(rows)} items)")
     if not rows:
         print("  (empty)")
         return 0
 
-    failures_dir = Path("data/logs/failures")
     for row in rows:
-        artifacts = sorted(failures_dir.glob(f"job{row['job_id']}_*.txt")) if failures_dir.exists() else []
-        latest_artifact = str(artifacts[-1]) if artifacts else "(none)"
+        latest_artifact = _latest_review_artifact(row["job_id"])
         print(f"\nApp #{row['app_id']} | Job #{row['job_id']} | {row['apply_type']}")
         print(f"  {row['title']} @ {row['company']}")
         print(f"  Updated: {row['updated_at']}")
@@ -473,6 +485,49 @@ def cmd_review_queue(args) -> int:
         print(f"  URL: {row['external_url'] or row['job_url']}")
         print(f"  Artifact: {latest_artifact}")
     print()
+    return 0
+
+
+def cmd_review_packet(args) -> int:
+    """Write a markdown packet for manual-review items."""
+    limit = max(1, int(getattr(args, "limit", 50)))
+    raw_output = getattr(args, "output", None)
+    if raw_output:
+        output = Path(raw_output).expanduser()
+    else:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        output = Path("data/logs") / f"review_packet_{stamp}.md"
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    rows = _fetch_review_rows(limit)
+
+    lines = [
+        f"# Manual Review Packet ({len(rows)} items)",
+        "",
+        f"Generated UTC: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}",
+        "",
+    ]
+    if not rows:
+        lines.append("No `needs_review` applications in queue.")
+    else:
+        for row in rows:
+            latest_artifact = _latest_review_artifact(row["job_id"])
+            lines.extend(
+                [
+                    f"## App #{row['app_id']} | Job #{row['job_id']} | {row['apply_type']}",
+                    "",
+                    f"- Title: {row['title']}",
+                    f"- Company: {row['company']}",
+                    f"- Updated: {row['updated_at']}",
+                    f"- Reason: {row['error_message'] or '(none)'}",
+                    f"- URL: {row['external_url'] or row['job_url']}",
+                    f"- Artifact: {latest_artifact}",
+                    "",
+                ]
+            )
+
+    output.write_text("\n".join(lines), encoding="utf-8")
+    print(f"Review packet written: {output}")
     return 0
 
 
@@ -553,6 +608,20 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="N",
         help="Max queue items to display (default: 20)",
     )
+    packet_parser = subs.add_parser("review-packet", help="Export manual-review queue to markdown")
+    packet_parser.add_argument(
+        "--limit",
+        type=int,
+        default=50,
+        metavar="N",
+        help="Max queue items to export (default: 50)",
+    )
+    packet_parser.add_argument(
+        "--output",
+        metavar="PATH",
+        default=None,
+        help="Output markdown path (default: data/logs/review_packet_<timestamp>.md)",
+    )
     subs.add_parser("platform-stats", help="Show breakdown of external ATS platforms found during search")
     qa_parser = subs.add_parser("qa-log", help="Show Q&A log for an application")
     qa_parser.add_argument(
@@ -614,6 +683,7 @@ def app() -> None:
         "check-email": cmd_check_email,
         "daily-summary": cmd_daily_summary,
         "review-queue": cmd_review_queue,
+        "review-packet": cmd_review_packet,
         "qa-log": cmd_qa_log,
         "platform-stats": cmd_platform_stats,
         "prepare-referral": cmd_prepare_referral,
