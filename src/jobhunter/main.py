@@ -376,6 +376,42 @@ def cmd_platform_stats(args) -> int:
     return 0
 
 
+def cmd_prepare_referral(args) -> int:
+    """Fetch a job posting URL and generate tailored resume + cover letter PDFs."""
+    settings = _load_settings()
+    profile = _load_profile()
+
+    url: str = args.url
+    title: str | None = getattr(args, "title", None) or None
+    company: str | None = getattr(args, "company", None) or None
+    output_dir = Path(getattr(args, "output_dir", None) or "data/resumes")
+
+    print(f"Preparing referral materials for: {url}")
+    if title:
+        print(f"  Title override:   {title}")
+    if company:
+        print(f"  Company override: {company}")
+    print(f"  Output directory: {output_dir}")
+    print()
+
+    from .scheduler import run_referral_once
+
+    resume_path, cover_path = asyncio.run(
+        run_referral_once(
+            settings=settings,
+            profile=profile,
+            url=url,
+            output_dir=output_dir,
+            title=title,
+            company=company,
+        )
+    )
+
+    print(f"Resume:       {resume_path}")
+    print(f"Cover letter: {cover_path}")
+    return 0
+
+
 def cmd_daily_summary(args) -> int:
     """Print today's activity summary."""
     from .scheduler import build_daily_summary, print_daily_summary
@@ -389,6 +425,54 @@ def cmd_daily_summary(args) -> int:
         conn.close()
 
     print_daily_summary(summary)
+    return 0
+
+
+def cmd_review_queue(args) -> int:
+    """Print applications that require manual review with latest artifact path."""
+    limit = max(1, int(getattr(args, "limit", 20)))
+    db_path = os.environ.get("DB_PATH", "data/jobhunter.db")
+    conn = init_db(db_path)
+    try:
+        rows = conn.execute(
+            """
+            SELECT
+                a.id AS app_id,
+                a.job_id AS job_id,
+                a.updated_at AS updated_at,
+                a.error_message AS error_message,
+                j.title AS title,
+                j.company AS company,
+                j.apply_type AS apply_type,
+                j.job_url AS job_url,
+                j.external_url AS external_url
+            FROM applications a
+            JOIN jobs j ON j.id = a.job_id
+            WHERE a.status = 'needs_review'
+            ORDER BY datetime(a.updated_at) DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    print(f"Manual Review Queue ({len(rows)} items)")
+    if not rows:
+        print("  (empty)")
+        return 0
+
+    failures_dir = Path("data/logs/failures")
+    for row in rows:
+        artifacts = sorted(failures_dir.glob(f"job{row['job_id']}_*.txt")) if failures_dir.exists() else []
+        latest_artifact = str(artifacts[-1]) if artifacts else "(none)"
+        print(f"\nApp #{row['app_id']} | Job #{row['job_id']} | {row['apply_type']}")
+        print(f"  {row['title']} @ {row['company']}")
+        print(f"  Updated: {row['updated_at']}")
+        print(f"  Reason: {row['error_message'] or '(none)'}")
+        print(f"  URL: {row['external_url'] or row['job_url']}")
+        print(f"  Artifact: {latest_artifact}")
+    print()
     return 0
 
 
@@ -461,6 +545,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subs.add_parser("check-email", help="Run email agent immediately")
     subs.add_parser("daily-summary", help="Print today's activity summary")
+    review_parser = subs.add_parser("review-queue", help="Show manual-review application queue")
+    review_parser.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        metavar="N",
+        help="Max queue items to display (default: 20)",
+    )
     subs.add_parser("platform-stats", help="Show breakdown of external ATS platforms found during search")
     qa_parser = subs.add_parser("qa-log", help="Show Q&A log for an application")
     qa_parser.add_argument(
@@ -469,6 +561,36 @@ def build_parser() -> argparse.ArgumentParser:
         dest="app_id",
         metavar="ID",
         help="Application ID (default: most recent application with Q&A)",
+    )
+
+    referral_parser = subs.add_parser(
+        "prepare-referral",
+        help="Fetch a job posting URL and generate tailored resume + cover letter PDFs",
+    )
+    referral_parser.add_argument(
+        "--url",
+        required=True,
+        metavar="URL",
+        help="Job posting URL (LinkedIn or any external URL)",
+    )
+    referral_parser.add_argument(
+        "--title",
+        metavar="TITLE",
+        default=None,
+        help="Override job title (skips LLM extraction for this field)",
+    )
+    referral_parser.add_argument(
+        "--company",
+        metavar="COMPANY",
+        default=None,
+        help="Override company name (skips LLM extraction for this field)",
+    )
+    referral_parser.add_argument(
+        "--output-dir",
+        dest="output_dir",
+        metavar="DIR",
+        default="data/resumes",
+        help="Directory to write PDFs into (default: data/resumes)",
     )
 
     return parser
@@ -491,8 +613,10 @@ def app() -> None:
         "apply-now": cmd_apply_now,
         "check-email": cmd_check_email,
         "daily-summary": cmd_daily_summary,
+        "review-queue": cmd_review_queue,
         "qa-log": cmd_qa_log,
         "platform-stats": cmd_platform_stats,
+        "prepare-referral": cmd_prepare_referral,
     }
 
     handler = handlers.get(args.command)

@@ -1,6 +1,7 @@
 """Tests for main.py CLI commands — init, status, daily-summary, build_parser."""
 
 import os
+from types import SimpleNamespace
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from pathlib import Path
@@ -9,6 +10,7 @@ from jobhunter.db.engine import init_db
 from jobhunter.main import (
     build_parser,
     cmd_init,
+    cmd_prepare_referral,
     cmd_status,
     cmd_daily_summary,
     _load_settings,
@@ -50,7 +52,7 @@ class TestBuildParser:
                 break
         assert subparsers_action is not None
         commands = set(subparsers_action._name_parser_map.keys())
-        expected = {"init", "status", "run", "search-now", "apply-now", "check-email", "daily-summary", "qa-log", "platform-stats"}
+        expected = {"init", "status", "run", "search-now", "apply-now", "check-email", "daily-summary", "review-queue", "qa-log", "platform-stats", "prepare-referral"}
         assert expected == commands
 
     def test_parser_accepts_log_level(self):
@@ -67,6 +69,11 @@ class TestBuildParser:
         parser = build_parser()
         args = parser.parse_args(["apply-now", "--reprobe-blocked-workday"])
         assert args.reprobe_blocked_workday is True
+
+    def test_review_queue_accepts_limit(self):
+        parser = build_parser()
+        args = parser.parse_args(["review-queue", "--limit", "5"])
+        assert args.limit == 5
 
 
 # ── _load_settings ────────────────────────────────────────────────────────────
@@ -235,3 +242,63 @@ class TestCmdDailySummary:
         out = capsys.readouterr().out
         # All counts should be 0 on empty DB
         assert "0" in out
+
+
+class TestCmdPrepareReferral:
+    def test_calls_scheduler_with_defaults(self, capsys):
+        args = SimpleNamespace(
+            url="https://example.com/jobs/123",
+            title=None,
+            company=None,
+            output_dir=None,
+        )
+        fake_profile = MagicMock()
+        fake_settings = {"models": {"routine": "claude-sonnet-4-6", "writing": "claude-opus-4-6"}}
+
+        with (
+            patch("jobhunter.main._load_settings", return_value=fake_settings),
+            patch("jobhunter.main._load_profile", return_value=fake_profile),
+            patch(
+                "jobhunter.scheduler.run_referral_once",
+                new=AsyncMock(return_value=(Path("/tmp/resume.pdf"), Path("/tmp/cover.pdf"))),
+            ) as mock_run,
+        ):
+            rc = cmd_prepare_referral(args)
+
+        assert rc == 0
+        kwargs = mock_run.await_args.kwargs
+        assert kwargs["settings"] == fake_settings
+        assert kwargs["profile"] is fake_profile
+        assert kwargs["url"] == "https://example.com/jobs/123"
+        assert kwargs["output_dir"] == Path("data/resumes")
+        assert kwargs["title"] is None
+        assert kwargs["company"] is None
+        out = capsys.readouterr().out
+        assert "Preparing referral materials for: https://example.com/jobs/123" in out
+        assert "Resume:       /tmp/resume.pdf" in out
+        assert "Cover letter: /tmp/cover.pdf" in out
+
+    def test_passes_overrides_and_custom_output_dir(self):
+        args = SimpleNamespace(
+            url="https://linkedin.com/jobs/view/999",
+            title="CISO",
+            company="Acme",
+            output_dir="/tmp/referral-out",
+        )
+
+        with (
+            patch("jobhunter.main._load_settings", return_value={}),
+            patch("jobhunter.main._load_profile", return_value=MagicMock()),
+            patch(
+                "jobhunter.scheduler.run_referral_once",
+                new=AsyncMock(return_value=(Path("/tmp/a.pdf"), Path("/tmp/b.pdf"))),
+            ) as mock_run,
+        ):
+            rc = cmd_prepare_referral(args)
+
+        assert rc == 0
+        kwargs = mock_run.await_args.kwargs
+        assert kwargs["url"] == "https://linkedin.com/jobs/view/999"
+        assert kwargs["title"] == "CISO"
+        assert kwargs["company"] == "Acme"
+        assert kwargs["output_dir"] == Path("/tmp/referral-out")
