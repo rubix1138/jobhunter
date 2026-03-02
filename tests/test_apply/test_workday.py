@@ -271,8 +271,8 @@ class TestTryLogin:
 
         def get_by_label_side_effect(label, **_kwargs):
             if "Email" in label or "Username" in label:
-                return email_field
-            return password_field
+                return MagicMock(first=email_field)
+            return MagicMock(first=password_field)
 
         applicator._page.get_by_label.side_effect = get_by_label_side_effect
 

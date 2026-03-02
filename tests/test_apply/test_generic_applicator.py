@@ -527,6 +527,7 @@ class TestApplyMainLoop:
         applicator._page.goto = AsyncMock()
         applicator._page.url = "https://example.com/apply"
         applicator._looks_like_auth_page = AsyncMock(return_value=False)
+        applicator._ensure_on_application_form = AsyncMock(return_value=True)
         applicator._get_page_heading = AsyncMock(return_value="Step 1")
         applicator._confirm_submission = AsyncMock(side_effect=[False, False])
         applicator._is_email_verification_wall = AsyncMock(return_value=False)
@@ -546,6 +547,21 @@ class TestApplyMainLoop:
         applicator._advance_or_submit.assert_awaited()
 
     @pytest.mark.asyncio
+    async def test_apply_marks_closed_listing_as_expired(self):
+        applicator = make_applicator()
+        job, app = self._make_job_and_app("closed")
+
+        applicator._page.goto = AsyncMock()
+        applicator._is_expired_listing = AsyncMock(return_value=True)
+
+        with patch("jobhunter.applicators.form_filling.random_delay", new=AsyncMock()):
+            result = await applicator.apply(job, app)
+
+        assert result is False
+        assert applicator.detected_expired is True
+        assert applicator.failure_reason == "Job listing closed: no longer available"
+
+    @pytest.mark.asyncio
     async def test_apply_returns_false_on_captcha_state(self):
         applicator = make_applicator()
         job, app = self._make_job_and_app("3")
@@ -553,6 +569,7 @@ class TestApplyMainLoop:
         applicator._page.goto = AsyncMock()
         applicator._page.url = "https://example.com/apply"
         applicator._looks_like_auth_page = AsyncMock(return_value=False)
+        applicator._ensure_on_application_form = AsyncMock(return_value=True)
         applicator._get_page_heading = AsyncMock(return_value="Step 1")
         applicator._confirm_submission = AsyncMock(return_value=False)
         applicator._is_email_verification_wall = AsyncMock(return_value=False)
@@ -574,6 +591,7 @@ class TestApplyMainLoop:
         applicator._page.goto = AsyncMock()
         applicator._page.url = "https://example.com/apply"
         applicator._looks_like_auth_page = AsyncMock(return_value=False)
+        applicator._ensure_on_application_form = AsyncMock(return_value=True)
         applicator._get_page_heading = AsyncMock(return_value="Step 1")
         applicator._confirm_submission = AsyncMock(return_value=False)
         applicator._is_email_verification_wall = AsyncMock(return_value=False)
@@ -596,6 +614,23 @@ class TestApplyMainLoop:
         assert result is False
 
     @pytest.mark.asyncio
+    async def test_apply_rechecks_expired_when_preflight_cannot_enter_form(self):
+        applicator = make_applicator()
+        job, app = self._make_job_and_app("closed-after-preflight")
+
+        applicator._page.goto = AsyncMock()
+        applicator._looks_like_auth_page = AsyncMock(return_value=False)
+        applicator._is_expired_listing = AsyncMock(side_effect=[False, True])
+        applicator._ensure_on_application_form = AsyncMock(return_value=False)
+
+        with patch("jobhunter.applicators.form_filling.random_delay", new=AsyncMock()):
+            result = await applicator.apply(job, app)
+
+        assert result is False
+        assert applicator.detected_expired is True
+        assert applicator.failure_reason == "Job listing closed: no longer available"
+
+    @pytest.mark.asyncio
     async def test_apply_returns_false_on_email_verification_wall(self):
         applicator = make_applicator()
         job, app = self._make_job_and_app("5")
@@ -603,6 +638,7 @@ class TestApplyMainLoop:
         applicator._page.goto = AsyncMock()
         applicator._page.url = "https://example.com/apply"
         applicator._looks_like_auth_page = AsyncMock(return_value=False)
+        applicator._ensure_on_application_form = AsyncMock(return_value=True)
         applicator._get_page_heading = AsyncMock(return_value="Step 1")
         applicator._confirm_submission = AsyncMock(return_value=False)
         applicator._is_email_verification_wall = AsyncMock(return_value=True)
@@ -629,6 +665,7 @@ class TestApplyMainLoop:
         applicator._page.goto = AsyncMock()
         applicator._page.url = "https://example.com/apply"
         applicator._looks_like_auth_page = AsyncMock(side_effect=[False, True])
+        applicator._ensure_on_application_form = AsyncMock(return_value=True)
         applicator._handle_auth_if_needed = AsyncMock(return_value=False)
         applicator._get_page_heading = AsyncMock(return_value="Step 1")
         applicator._confirm_submission = AsyncMock(return_value=False)
@@ -658,6 +695,7 @@ class TestApplyMainLoop:
         applicator._page.goto = AsyncMock()
         applicator._page.url = "https://example.com/apply"
         applicator._looks_like_auth_page = AsyncMock(return_value=False)
+        applicator._ensure_on_application_form = AsyncMock(return_value=True)
         applicator._get_page_heading = AsyncMock(return_value="Step 1")
         applicator._confirm_submission = AsyncMock(side_effect=[False, False])
         applicator._is_email_verification_wall = AsyncMock(return_value=False)

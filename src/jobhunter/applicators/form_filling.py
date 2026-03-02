@@ -135,6 +135,15 @@ _FILE_SELECTORS = [
     "input[accept*='.pdf']",
 ]
 
+_EXPIRED_LISTING_MARKERS = [
+    "no longer accepting applications",
+    "this job is no longer available",
+    "job is no longer available",
+    "position is no longer available",
+    "job posting is no longer available",
+    "position has been filled",
+]
+
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -228,6 +237,7 @@ class FormFillingAgent(BaseApplicator):
         self._vault = vault
         self._cred_repo = cred_repo
         self._gmail = gmail
+        self.detected_expired: bool = False
 
     # ── Main entry point ──────────────────────────────────────────────────────
 
@@ -249,6 +259,10 @@ class FormFillingAgent(BaseApplicator):
         await random_delay(2.0, 4.0)
         context = f"{job.title} at {job.company}"
 
+        if await self._is_expired_listing():
+            self.detected_expired = True
+            return self._fail("Job listing closed: no longer available")
+
         # Auth detection & handling
         if await self._looks_like_auth_page():
             if not await self._handle_auth_if_needed(url):
@@ -259,6 +273,9 @@ class FormFillingAgent(BaseApplicator):
 
         # Ensure we are actually on an application form, not a listing/search page.
         if not await self._ensure_on_application_form(context):
+            if await self._is_expired_listing():
+                self.detected_expired = True
+                return self._fail("Job listing closed: no longer available")
             return self._fail("Not on application form (listing/search page)")
 
         # Main form-filling loop
@@ -400,6 +417,7 @@ class FormFillingAgent(BaseApplicator):
             for token in (
                 "g-recaptcha",
                 "hcaptcha",
+                "please complete the captcha",
                 "captcha challenge",
                 "i'm not a robot",
                 "i am not a robot",
@@ -1136,6 +1154,14 @@ class FormFillingAgent(BaseApplicator):
             except Exception:
                 pass
         return False
+
+    async def _is_expired_listing(self) -> bool:
+        """Return True when page text indicates the posting is no longer available."""
+        try:
+            content = (await self._page.content()).lower()
+        except Exception:
+            return False
+        return any(marker in content for marker in _EXPIRED_LISTING_MARKERS)
 
     async def _ensure_on_application_form(self, context: str) -> bool:
         """Try to enter form flow once if currently on a listing/detail page."""
