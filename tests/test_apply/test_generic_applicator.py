@@ -478,16 +478,12 @@ class TestFillRadioField:
         opt.first.click.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_fill_radio_field_approach4_broad_value_search(self):
+    async def test_fill_radio_field_no_broad_value_fallback(self):
         applicator = make_applicator()
 
         def get_by_role_side_effect(role, **kwargs):
             if role == "radiogroup":
                 raise Exception("approach1 fails")
-            if role == "radio":
-                opt = MagicMock()
-                opt.first.click = AsyncMock()
-                return opt
             raise Exception("unexpected role")
 
         applicator._page.get_by_role.side_effect = get_by_role_side_effect
@@ -501,7 +497,7 @@ class TestFillRadioField:
                 locator=None, label="Gender", label_norm="Gender", value="Prefer not to answer"
             )
 
-        assert result == 1
+        assert result == 0
 
 
 class TestApplyMainLoop:

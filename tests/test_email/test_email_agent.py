@@ -50,7 +50,10 @@ def profile() -> UserProfile:
 def settings() -> dict:
     return {
         "budget": {"daily_limit_usd": 10.0},
-        "thresholds": {"recruiter_reply_min_score": 0.7},
+        "thresholds": {
+            "recruiter_reply_min_score": 0.7,
+            "recruiter_reply_min_classification_confidence": 0.75,
+        },
     }
 
 
@@ -289,6 +292,9 @@ class TestActRecruiter:
         linked_job.match_score = 0.85
         linked_job.title = "Senior Engineer"
         linked_job.company = "BigCorp"
+        linked_job.company_domain = None
+        linked_job.external_url = None
+        linked_job.job_url = "https://www.linkedin.com/jobs/view/123"
 
         action, details = await agent._act(msg, result, linked_job, MagicMock())
 
@@ -306,11 +312,42 @@ class TestActRecruiter:
 
         linked_job = MagicMock()
         linked_job.match_score = 0.40  # below 0.7 threshold
+        linked_job.company = "Acme"
+        linked_job.job_url = "https://www.linkedin.com/jobs/view/1"
+        linked_job.external_url = None
+        linked_job.company_domain = None
 
         action, details = await agent._act(msg, result, linked_job, MagicMock())
 
         assert action == "ignored"
         assert "below threshold" in details
+        gmail.send_message.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_recruiter_low_classification_confidence_is_ignored(self, db_path, profile, settings):
+        gmail = _make_gmail()
+        agent = _make_agent(gmail, _make_llm(), profile, settings, db_path)
+
+        msg = _make_message(from_addr="recruiter@bigcorp.com")
+        result = _make_classification(
+            "recruiter_outreach",
+            confidence=0.40,
+            company="BigCorp",
+            should_forward=False,
+        )
+
+        linked_job = MagicMock()
+        linked_job.match_score = 0.95
+        linked_job.title = "Senior Engineer"
+        linked_job.company = "BigCorp"
+        linked_job.company_domain = None
+        linked_job.external_url = None
+        linked_job.job_url = "https://www.linkedin.com/jobs/view/123"
+
+        action, details = await agent._act(msg, result, linked_job, MagicMock())
+
+        assert action == "ignored"
+        assert "classification confidence" in details
         gmail.send_message.assert_not_called()
 
     @pytest.mark.asyncio
@@ -332,17 +369,64 @@ class TestActRecruiter:
         llm = _make_llm("Reply text")
         agent = _make_agent(gmail, llm, profile, settings, db_path)
 
-        msg = _make_message(from_addr="r@corp.com")
+        msg = _make_message(from_addr="recruiter@acmesecurity.com")
         result = _make_classification("recruiter_outreach", should_forward=False)
 
         linked_job = MagicMock()
         linked_job.match_score = 0.92
-        linked_job.title = "Engineer"
-        linked_job.company = "Corp"
+        linked_job.title = "Staff Security Engineer"
+        linked_job.company = "Acme Security"
+        linked_job.company_domain = None
+        linked_job.external_url = None
+        linked_job.job_url = "https://www.linkedin.com/jobs/view/123"
 
         action, details = await agent._act(msg, result, linked_job, MagicMock())
 
         assert "0.92" in details
+
+    @pytest.mark.asyncio
+    async def test_recruiter_sender_domain_mismatch_is_ignored(self, db_path, profile, settings):
+        gmail = _make_gmail()
+        llm = _make_llm("Reply text")
+        agent = _make_agent(gmail, llm, profile, settings, db_path)
+
+        msg = _make_message(from_addr="recruiter@evil-domain.com")
+        result = _make_classification("recruiter_outreach", should_forward=False, company="BigCorp")
+
+        linked_job = MagicMock()
+        linked_job.match_score = 0.93
+        linked_job.title = "Senior Engineer"
+        linked_job.company = "BigCorp"
+        linked_job.company_domain = "bigcorp.com"
+        linked_job.external_url = None
+        linked_job.job_url = "https://www.linkedin.com/jobs/view/123"
+
+        action, details = await agent._act(msg, result, linked_job, MagicMock())
+        assert action == "ignored"
+        assert "does not match linked job" in details
+        gmail.send_message.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_recruiter_free_email_sender_is_ignored(self, db_path, profile, settings):
+        gmail = _make_gmail()
+        llm = _make_llm("Reply text")
+        agent = _make_agent(gmail, llm, profile, settings, db_path)
+
+        msg = _make_message(from_addr="Recruiter Name <someone@gmail.com>")
+        result = _make_classification("recruiter_outreach", should_forward=False, company="BigCorp")
+
+        linked_job = MagicMock()
+        linked_job.match_score = 0.94
+        linked_job.title = "Senior Engineer"
+        linked_job.company = "BigCorp"
+        linked_job.company_domain = "bigcorp.com"
+        linked_job.external_url = None
+        linked_job.job_url = "https://www.linkedin.com/jobs/view/123"
+
+        action, details = await agent._act(msg, result, linked_job, MagicMock())
+        assert action == "ignored"
+        assert "free-email" in details
+        gmail.send_message.assert_not_called()
 
 
 # ── _find_linked_job ──────────────────────────────────────────────────────────

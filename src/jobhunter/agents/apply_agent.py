@@ -198,6 +198,7 @@ class ApplyAgent(BaseAgent):
             )
 
         submitted = 0
+        generated = 0
         skipped = 0
 
         if self._dry_run:
@@ -213,8 +214,10 @@ class ApplyAgent(BaseAgent):
             try:
                 success = await self._apply_to_job(job, job_repo, app_repo)
                 if success:
-                    submitted += 1
-                    if not self._dry_run:
+                    if self._dry_run:
+                        generated += 1
+                    else:
+                        submitted += 1
                         await application_delay(
                             self._settings.get("rate_limits", {}).get("min_delay_between_applications", 30),
                             self._settings.get("rate_limits", {}).get("max_delay_between_applications", 90),
@@ -225,9 +228,21 @@ class ApplyAgent(BaseAgent):
                 self.logger.error(f"Unexpected error applying to {job.title} @ {job.company}: {e}")
                 skipped += 1
 
-        attempted = submitted + skipped
+        successful = submitted + generated
+        attempted = successful + skipped
         if attempted > 0:
-            if submitted > 0:
+            if self._dry_run:
+                if generated > 0:
+                    self.logger.info(
+                        f"Run summary: {generated} materials generated, {skipped} failed/skipped "
+                        f"out of {attempted} attempted"
+                    )
+                else:
+                    self.logger.warning(
+                        f"Run summary: 0 materials generated — {skipped} jobs attempted but none "
+                        "completed successfully. Check logs above for per-job errors."
+                    )
+            elif submitted > 0:
                 self.logger.info(
                     f"Run summary: {submitted} submitted, {skipped} failed/skipped "
                     f"out of {attempted} attempted"
@@ -243,6 +258,7 @@ class ApplyAgent(BaseAgent):
             apps_submitted=submitted,
             details={
                 "submitted": submitted,
+                "generated": generated,
                 "skipped": skipped,
                 "candidates": len(candidates),
                 "dry_run": self._dry_run,

@@ -351,6 +351,39 @@ class TestQACacheIntegration:
 
         mock_cache.upsert.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_cache_key_scoped_by_domain_when_job_present(self):
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None
+        app = make_applicator(qa_cache=mock_cache)
+        app._job = MagicMock(
+            external_url="https://boards.greenhouse.io/acme/jobs/123",
+            job_url="https://www.linkedin.com/jobs/view/123",
+            company="Acme Corp",
+        )
+
+        claude_response = QuestionAnswer(answer="Healthcare", confidence=0.85, source="claude")
+        with patch.object(app, "_answer_via_claude", new=AsyncMock(return_value=claude_response)):
+            await app.answer_question("What industry do you prefer?", "text")
+
+        get_key = mock_cache.get.call_args[0][0]
+        upsert_entry = mock_cache.upsert.call_args[0][0]
+        assert get_key.startswith("domain:boards.greenhouse.io|company:acme_corp|")
+        assert upsert_entry.question_key.startswith("domain:boards.greenhouse.io|company:acme_corp|")
+
+    @pytest.mark.asyncio
+    async def test_cache_key_not_scoped_without_job_context(self):
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None
+        app = make_applicator(qa_cache=mock_cache)
+
+        claude_response = QuestionAnswer(answer="Healthcare", confidence=0.85, source="claude")
+        with patch.object(app, "_answer_via_claude", new=AsyncMock(return_value=claude_response)):
+            await app.answer_question("What industry do you prefer?", "text")
+
+        get_key = mock_cache.get.call_args[0][0]
+        assert get_key == "what industry do you prefer"
+
 
 class TestApplyFailureFormatting:
     def test_includes_reason_type_and_url(self):

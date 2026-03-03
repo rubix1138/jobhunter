@@ -778,15 +778,8 @@ class FormFillingAgent(BaseApplicator):
         except Exception:
             pass
 
-        # Approach 4: broad search by value name only (last resort)
-        try:
-            opt = self._page.get_by_role("radio", name=value, exact=False)
-            await opt.first.click()
-            await micro_delay()
-            return 1
-        except Exception:
-            pass
-
+        # Do NOT do a broad page-wide radio search by answer text alone.
+        # It is unsafe when multiple unrelated Yes/No groups exist.
         return 0
 
     async def _fill_typeahead(self, input_el, answer: str) -> bool:

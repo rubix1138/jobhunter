@@ -6,6 +6,7 @@ import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
+from urllib.parse import urlparse
 
 from patchright.async_api import Page
 
@@ -34,6 +35,15 @@ def _options_hash(options: Optional[list[str]]) -> str:
     if not options:
         return ''
     return hashlib.md5(','.join(sorted(options)).encode()).hexdigest()[:8]
+
+
+def _extract_host(url: Optional[str]) -> str:
+    if not url:
+        return ""
+    try:
+        return (urlparse(url).hostname or "").strip().lower()
+    except Exception:
+        return ""
 
 # Minimum Claude confidence to auto-answer a question
 MIN_AUTO_ANSWER_CONFIDENCE = 0.5
@@ -194,6 +204,38 @@ TECHNICAL SKILLS:
 
     # ── Question answering ────────────────────────────────────────────────────
 
+    def _qa_scope_key(self) -> str:
+        """
+        Build a cache scope key so Q&A answers do not bleed across ATS domains.
+        """
+        job = getattr(self, "_job", None)
+        if not job:
+            return "global"
+
+        domain = _extract_host(getattr(job, "external_url", None)) or _extract_host(
+            getattr(job, "job_url", None)
+        )
+        company = re.sub(r"[^a-z0-9]+", "_", (getattr(job, "company", "") or "").lower()).strip("_")
+
+        if domain and company:
+            return f"domain:{domain}|company:{company[:40]}"
+        if domain:
+            return f"domain:{domain}"
+        if company:
+            return f"company:{company[:40]}"
+        return "global"
+
+    def _scoped_question_key(self, question: str) -> str:
+        """
+        Namespace normalized question text by job scope to prevent cache poisoning.
+        """
+        base = _normalize_question(question)
+        scope = self._qa_scope_key()
+        if scope == "global":
+            return base
+        # Keep within DB field norms and prior cache key size expectations.
+        return f"{scope}|{base}"[:500]
+
     async def answer_question(
         self,
         question: str,
@@ -218,7 +260,7 @@ TECHNICAL SKILLS:
         """
         # 0. QA cache lookup
         if self._qa_cache:
-            key = _normalize_question(question)
+            key = self._scoped_question_key(question)
             ohash = _options_hash(options)
             cached = self._qa_cache.get(key, ohash)
             if cached and cached.confidence >= 0.7:
@@ -523,7 +565,7 @@ Rules:
             return
         try:
             self._qa_cache.upsert(QACache(
-                question_key=_normalize_question(question),
+                question_key=self._scoped_question_key(question),
                 options_hash=_options_hash(options),
                 field_type=field_type,
                 answer=qa.answer,

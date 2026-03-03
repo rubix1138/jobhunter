@@ -20,6 +20,25 @@ Automated job search + application assistant built around LinkedIn discovery, ex
 - Domain blacklist support (for example `remotehunter.com`) during search/apply
 - Gmail auth auto-recovery when refresh token is revoked (`invalid_grant`)
 - Email-classifier parser hardening for fenced/truncated JSON responses
+- Referral fetch hardening:
+  - `prepare-referral` now enforces `https://` only
+  - blocks localhost/non-public targets to reduce SSRF/local file abuse
+- Prompt-injection hardening:
+  - untrusted job/email text is explicitly delimited in prompts
+  - recruiter auto-reply now also requires minimum classification confidence
+- Recruiter auto-reply trust hardening:
+  - sender domain must match linked job/domain signals
+  - free-email recruiter senders are blocked by default
+- QA cache poisoning mitigation:
+  - cache keys are now scoped by job domain/company context
+- Form safety:
+  - removed unsafe global radio fallback (`Yes/No` broad clicks)
+- Export/output safety:
+  - `review-packet --csv` now sanitizes spreadsheet formula cells
+  - terminal review output strips ANSI/control characters
+- Apply dry-run reporting fix:
+  - dry-run counters now track/generated materials separately from submitted applications
+  - CLI output correctly reports generated count
 - Browser UX controls:
   - optional minimized Chromium launch
   - per-run window labeling (`--class=jobhunter-...` on Linux)
@@ -106,6 +125,8 @@ Window labeling is automatic and run-specific (for example `search-now-pid12345`
 ```bash
 .venv/bin/pytest -q
 ```
+
+Current full-suite baseline: `492 passed`.
 
 Targeted suites:
 

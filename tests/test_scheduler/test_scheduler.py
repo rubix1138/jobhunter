@@ -13,6 +13,7 @@ from jobhunter.scheduler import (
     print_daily_summary,
     _build_browser_session,
     _build_llm,
+    run_apply_once,
     run_referral_once,
 )
 
@@ -301,6 +302,33 @@ class TestPrintDailySummary:
         assert "Needs-review queue" in out
         assert "App #77" in out
 
+    def test_sanitizes_control_and_ansi_in_review_queue_output(self, capsys):
+        summary = {
+            "date": "2024-06-15",
+            "jobs_found": 1,
+            "apps_submitted": 0,
+            "emails_processed": 0,
+            "rejections": 0,
+            "interviews": 0,
+            "llm_cost_usd": 0.0,
+            "review_queue": [
+                {
+                    "app_id": 88,
+                    "apply_type": "external_other",
+                    "title": "Director\x1b[31m Security\x1b[0m\nInjected",
+                    "company": "Acme\tCorp",
+                    "error_message": "Bad\rReason",
+                    "url": "https://jobs.example.com/apply/\x1b[32m1\x1b[0m",
+                }
+            ],
+        }
+        print_daily_summary(summary)
+        out = capsys.readouterr().out
+        assert "\x1b[" not in out
+        assert "Director Security Injected" in out
+        assert "Acme Corp" in out
+        assert "Bad Reason" in out
+
 
 # ── _build_llm ────────────────────────────────────────────────────────────────
 
@@ -415,6 +443,66 @@ class TestRunReferralOnce:
         assert kwargs["browser_session"] is fake_session
         assert kwargs["title_override"] == "Security Engineer"
         assert kwargs["company_override"] == "Acme"
+
+
+class TestRunApplyOnce:
+    @pytest.mark.asyncio
+    async def test_dry_run_prints_generated_count_from_details(self, settings, profile, db_path, capsys):
+        fake_llm = MagicMock()
+        fake_session = MagicMock()
+        fake_session.start = AsyncMock()
+        fake_session.ensure_linkedin_session = AsyncMock()
+        fake_session.stop = AsyncMock()
+
+        fake_agent = MagicMock()
+        fake_agent.run = AsyncMock(return_value=MagicMock(
+            apps_submitted=0,
+            details={"generated": 3},
+        ))
+
+        with (
+            patch("jobhunter.scheduler._build_llm", return_value=fake_llm),
+            patch("jobhunter.scheduler._build_browser_session", return_value=fake_session),
+            patch("jobhunter.scheduler.ApplyAgent", return_value=fake_agent),
+        ):
+            await run_apply_once(
+                settings=settings,
+                profile=profile,
+                db_path=db_path,
+                dry_run=True,
+            )
+
+        out = capsys.readouterr().out
+        assert "Dry run complete: 3 resumes generated" in out
+
+    @pytest.mark.asyncio
+    async def test_dry_run_defaults_generated_to_zero_when_missing(self, settings, profile, db_path, capsys):
+        fake_llm = MagicMock()
+        fake_session = MagicMock()
+        fake_session.start = AsyncMock()
+        fake_session.ensure_linkedin_session = AsyncMock()
+        fake_session.stop = AsyncMock()
+
+        fake_agent = MagicMock()
+        fake_agent.run = AsyncMock(return_value=MagicMock(
+            apps_submitted=0,
+            details={},
+        ))
+
+        with (
+            patch("jobhunter.scheduler._build_llm", return_value=fake_llm),
+            patch("jobhunter.scheduler._build_browser_session", return_value=fake_session),
+            patch("jobhunter.scheduler.ApplyAgent", return_value=fake_agent),
+        ):
+            await run_apply_once(
+                settings=settings,
+                profile=profile,
+                db_path=db_path,
+                dry_run=True,
+            )
+
+        out = capsys.readouterr().out
+        assert "Dry run complete: 0 resumes generated" in out
 
     def test_uses_default_models_when_not_configured(self):
         with patch("jobhunter.scheduler.ClaudeClient") as MockClient:

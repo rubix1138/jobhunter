@@ -18,6 +18,7 @@ from .gmail.auth import get_gmail_service
 from .gmail.client import GmailClient
 from .llm.client import ClaudeClient
 from .utils.logging import get_logger
+from .utils.output_safety import sanitize_terminal_text
 from .utils.profile_loader import UserProfile
 from .utils.rate_limiter import RateLimiter
 
@@ -299,7 +300,10 @@ async def run_apply_once(
         )
         result = await agent.run()
         if dry_run:
-            print(f"Dry run complete: {result.apps_submitted} resumes generated in data/resumes/")
+            generated = 0
+            if isinstance(result.details, dict):
+                generated = int(result.details.get("generated", 0) or 0)
+            print(f"Dry run complete: {generated} resumes generated in data/resumes/")
         elif review_mode:
             print(f"Review run complete: {result.apps_submitted} applications submitted after review")
         else:
@@ -465,11 +469,13 @@ def print_daily_summary(summary: dict) -> None:
     if review_queue:
         print("  Top review items:")
         for entry in review_queue:
-            title = entry.get("title") or "(unknown title)"
-            company = entry.get("company") or "(unknown company)"
-            reason = entry.get("error_message") or "(no reason)"
-            url = entry.get("url") or "(no url)"
-            print(f"    - App #{entry.get('app_id')} [{entry.get('apply_type')}] {title} @ {company}")
+            title = sanitize_terminal_text(entry.get("title") or "(unknown title)")
+            company = sanitize_terminal_text(entry.get("company") or "(unknown company)")
+            reason = sanitize_terminal_text(entry.get("error_message") or "(no reason)")
+            url = sanitize_terminal_text(entry.get("url") or "(no url)")
+            apply_type = sanitize_terminal_text(entry.get("apply_type") or "unknown")
+            app_id = sanitize_terminal_text(entry.get("app_id") or "?", max_len=40)
+            print(f"    - App #{app_id} [{apply_type}] {title} @ {company}")
             print(f"      Reason: {reason}")
             print(f"      URL: {url}")
     print(f"{sep}\n")

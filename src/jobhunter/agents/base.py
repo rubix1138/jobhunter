@@ -182,10 +182,15 @@ class BaseAgent(ABC):
             await self.after_run(result)
             result.success = True
             # Build a result summary so "completed" is informative, not just "OK"
+            details = result.details if isinstance(result.details, dict) else {}
+            dry_run = bool(details.get("dry_run", False))
+            generated = int(details.get("generated", 0) or 0)
             parts = []
             if result.jobs_found:
                 parts.append(f"{result.jobs_found} jobs found")
-            if result.apps_submitted is not None:
+            if dry_run and generated > 0:
+                parts.append(f"{generated} generated")
+            elif result.apps_submitted is not None:
                 parts.append(f"{result.apps_submitted} submitted")
             if result.emails_processed:
                 parts.append(f"{result.emails_processed} emails")

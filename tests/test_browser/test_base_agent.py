@@ -73,6 +73,17 @@ class UnexpectedErrorAgent(BaseAgent):
         raise ValueError("totally unexpected")
 
 
+class DryRunSummaryAgent(BaseAgent):
+    name = "dry_run_summary_agent"
+
+    async def run_once(self) -> AgentResult:
+        return AgentResult(
+            success=True,
+            apps_submitted=0,
+            details={"dry_run": True, "generated": 2},
+        )
+
+
 class TestBaseAgentLifecycle:
     @pytest.mark.asyncio
     async def test_success_run(self, db_path):
@@ -128,6 +139,14 @@ class TestBaseAgentLifecycle:
         conn.close()
         assert runs[0].status == "error"
         assert "Something broke" in runs[0].error_message
+
+    @pytest.mark.asyncio
+    async def test_dry_run_summary_uses_generated_count(self, db_path, caplog):
+        agent = DryRunSummaryAgent(db_path=db_path)
+        with caplog.at_level("INFO"):
+            result = await agent.run()
+        assert result.success is True
+        assert "2 generated" in caplog.text
 
 
 class TestBaseAgentRetry:

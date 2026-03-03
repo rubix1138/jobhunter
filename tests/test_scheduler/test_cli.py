@@ -11,6 +11,7 @@ from jobhunter.main import (
     build_parser,
     cmd_init,
     cmd_prepare_referral,
+    cmd_review_queue,
     cmd_review_packet,
     cmd_review_resolve,
     cmd_status,
@@ -392,6 +393,43 @@ class TestCmdReviewPacket:
         text = out_path.read_text()
         assert "app_id,job_id,apply_type" in text
 
+    def test_csv_sanitizes_formula_cells(self, db_path, tmp_path):
+        conn = init_db(db_path)
+        conn.execute(
+            """
+            INSERT INTO jobs (
+                linkedin_job_id, title, company, job_url, external_url, apply_type, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "li-formula-1",
+                "=HYPERLINK(\"http://evil\")",
+                "+BadCorp",
+                "https://example.com/job/formula-1",
+                "@https://evil.example/apply",
+                "external_other",
+                "qualified",
+            ),
+        )
+        job_id = int(conn.execute("SELECT id FROM jobs ORDER BY id DESC LIMIT 1").fetchone()[0])
+        conn.execute(
+            "INSERT INTO applications (job_id, status, error_message) VALUES (?, ?, ?)",
+            (job_id, "needs_review", "-drop table"),
+        )
+        conn.commit()
+        conn.close()
+
+        out_path = tmp_path / "packet_formula.csv"
+        args = SimpleNamespace(limit=5, output=str(out_path), csv=True, open_only=False)
+        rc = cmd_review_packet(args)
+        assert rc == 0
+
+        text = out_path.read_text()
+        assert "'=HYPERLINK" in text
+        assert "'+BadCorp" in text
+        assert "'-drop table" in text
+        assert "'@https://evil.example/apply" in text
+
     def test_writes_open_url_list_when_requested(self, tmp_path):
         out_path = tmp_path / "packet.txt"
         args = SimpleNamespace(limit=5, output=str(out_path), csv=False, open_only=True)
@@ -406,6 +444,44 @@ class TestCmdReviewPacket:
         args = SimpleNamespace(limit=5, output=str(out_path), csv=True, open_only=True)
         rc = cmd_review_packet(args)
         assert rc == 2
+
+
+class TestCmdReviewQueue:
+    def test_sanitizes_terminal_output(self, db_path, capsys):
+        conn = init_db(db_path)
+        conn.execute(
+            """
+            INSERT INTO jobs (
+                linkedin_job_id, title, company, job_url, external_url, apply_type, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "li-review-1",
+                "Sr \x1b[31mSecurity\x1b[0m Engineer\nInjected",
+                "Acme\tCorp",
+                "https://example.com/job/1",
+                "https://jobs.example.com/apply/\x1b[32m1\x1b[0m",
+                "external_other",
+                "qualified",
+            ),
+        )
+        job_id = int(conn.execute("SELECT id FROM jobs ORDER BY id DESC LIMIT 1").fetchone()[0])
+        conn.execute(
+            "INSERT INTO applications (job_id, status, error_message) VALUES (?, ?, ?)",
+            (job_id, "needs_review", "Bad\rReason"),
+        )
+        conn.commit()
+        conn.close()
+
+        args = SimpleNamespace(limit=5)
+        rc = cmd_review_queue(args)
+        assert rc == 0
+
+        out = capsys.readouterr().out
+        assert "\x1b[" not in out
+        assert "Sr Security Engineer Injected" in out
+        assert "Acme Corp" in out
+        assert "Bad Reason" in out
 
 
 class TestCmdReviewResolve:

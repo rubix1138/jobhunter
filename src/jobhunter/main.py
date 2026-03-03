@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from .db.engine import get_connection, init_db, run_migrations
 from .db.repository import AgentRunRepo
 from .utils.logging import setup_logging, get_logger
+from .utils.output_safety import sanitize_terminal_text
 
 load_dotenv()
 
@@ -503,6 +504,18 @@ def _latest_review_artifact(job_id: int) -> str:
     return str(artifacts[-1]) if artifacts else "(none)"
 
 
+def _sanitize_csv_cell(value) -> str:
+    """
+    Neutralize spreadsheet formula injection for CSV exports.
+    """
+    text = "" if value is None else str(value)
+    if not text:
+        return text
+    if text[0] in ("=", "+", "-", "@"):
+        return "'" + text
+    return text
+
+
 def cmd_review_queue(args) -> int:
     """Print applications that require manual review with latest artifact path."""
     limit = max(1, int(getattr(args, "limit", 20)))
@@ -515,12 +528,21 @@ def cmd_review_queue(args) -> int:
 
     for row in rows:
         latest_artifact = _latest_review_artifact(row["job_id"])
-        print(f"\nApp #{row['app_id']} | Job #{row['job_id']} | {row['apply_type']}")
-        print(f"  {row['title']} @ {row['company']}")
-        print(f"  Updated: {row['updated_at']}")
-        print(f"  Reason: {row['error_message'] or '(none)'}")
-        print(f"  URL: {row['external_url'] or row['job_url']}")
-        print(f"  Artifact: {latest_artifact}")
+        app_id = sanitize_terminal_text(row["app_id"], max_len=40)
+        job_id = sanitize_terminal_text(row["job_id"], max_len=40)
+        apply_type = sanitize_terminal_text(row["apply_type"])
+        title = sanitize_terminal_text(row["title"])
+        company = sanitize_terminal_text(row["company"])
+        updated_at = sanitize_terminal_text(row["updated_at"])
+        reason = sanitize_terminal_text(row["error_message"] or "(none)")
+        url = sanitize_terminal_text(row["external_url"] or row["job_url"])
+        artifact = sanitize_terminal_text(latest_artifact)
+        print(f"\nApp #{app_id} | Job #{job_id} | {apply_type}")
+        print(f"  {title} @ {company}")
+        print(f"  Updated: {updated_at}")
+        print(f"  Reason: {reason}")
+        print(f"  URL: {url}")
+        print(f"  Artifact: {artifact}")
     print()
     return 0
 
@@ -581,15 +603,15 @@ def cmd_review_packet(args) -> int:
             for row in rows:
                 writer.writerow(
                     [
-                        row["app_id"],
-                        row["job_id"],
-                        row["apply_type"],
-                        row["title"],
-                        row["company"],
-                        row["updated_at"],
-                        row["error_message"] or "",
-                        row["external_url"] or row["job_url"],
-                        _latest_review_artifact(row["job_id"]),
+                        _sanitize_csv_cell(row["app_id"]),
+                        _sanitize_csv_cell(row["job_id"]),
+                        _sanitize_csv_cell(row["apply_type"]),
+                        _sanitize_csv_cell(row["title"]),
+                        _sanitize_csv_cell(row["company"]),
+                        _sanitize_csv_cell(row["updated_at"]),
+                        _sanitize_csv_cell(row["error_message"] or ""),
+                        _sanitize_csv_cell(row["external_url"] or row["job_url"]),
+                        _sanitize_csv_cell(_latest_review_artifact(row["job_id"])),
                     ]
                 )
     else:
@@ -606,14 +628,17 @@ def cmd_review_packet(args) -> int:
                 latest_artifact = _latest_review_artifact(row["job_id"])
                 lines.extend(
                     [
-                        f"## App #{row['app_id']} | Job #{row['job_id']} | {row['apply_type']}",
+                        "## App #"
+                        f"{sanitize_terminal_text(row['app_id'], max_len=40)} | Job #"
+                        f"{sanitize_terminal_text(row['job_id'], max_len=40)} | "
+                        f"{sanitize_terminal_text(row['apply_type'])}",
                         "",
-                        f"- Title: {row['title']}",
-                        f"- Company: {row['company']}",
-                        f"- Updated: {row['updated_at']}",
-                        f"- Reason: {row['error_message'] or '(none)'}",
-                        f"- URL: {row['external_url'] or row['job_url']}",
-                        f"- Artifact: {latest_artifact}",
+                        f"- Title: {sanitize_terminal_text(row['title'])}",
+                        f"- Company: {sanitize_terminal_text(row['company'])}",
+                        f"- Updated: {sanitize_terminal_text(row['updated_at'])}",
+                        f"- Reason: {sanitize_terminal_text(row['error_message'] or '(none)')}",
+                        f"- URL: {sanitize_terminal_text(row['external_url'] or row['job_url'])}",
+                        f"- Artifact: {sanitize_terminal_text(latest_artifact)}",
                         "",
                     ]
                 )

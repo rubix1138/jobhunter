@@ -1,5 +1,8 @@
 """Email Agent — poll Gmail, classify, act, and update job status."""
+import re
+from email.utils import parseaddr
 from typing import Optional
+from urllib.parse import urlparse
 
 from ..db.models import EmailLog, Job
 from ..db.repository import EmailRepo, JobRepo
@@ -24,6 +27,76 @@ _CLASSIFICATION_LABELS = {
     "interview_invite": _LABEL_INTERVIEW,
     "offer": _LABEL_OFFER,
 }
+
+_FREE_EMAIL_DOMAINS = {
+    "gmail.com",
+    "yahoo.com",
+    "hotmail.com",
+    "outlook.com",
+    "icloud.com",
+    "aol.com",
+    "proton.me",
+    "protonmail.com",
+}
+
+_COMPANY_STOPWORDS = {
+    "inc", "incorporated", "corp", "corporation", "company", "co", "llc", "ltd", "limited",
+    "group", "holdings",
+}
+
+
+def _normalize_company_tokens(name: str) -> list[str]:
+    raw = re.sub(r"[^a-z0-9]+", " ", (name or "").lower()).strip()
+    tokens = [t for t in raw.split() if len(t) >= 3 and t not in _COMPANY_STOPWORDS]
+    return tokens
+
+
+def _company_names_match(lhs: str, rhs: str) -> bool:
+    a_tokens = set(_normalize_company_tokens(lhs))
+    b_tokens = set(_normalize_company_tokens(rhs))
+    if a_tokens and b_tokens:
+        overlap = len(a_tokens & b_tokens)
+        min_size = min(len(a_tokens), len(b_tokens))
+        if overlap / min_size >= 0.6:
+            return True
+        if min_size == 1 and overlap == 1:
+            token = next(iter(a_tokens & b_tokens))
+            if len(token) >= 4:
+                return True
+
+    a = (lhs or "").strip().lower()
+    b = (rhs or "").strip().lower()
+    if not a or not b:
+        return False
+    return a in b or b in a
+
+
+def _domain_matches(sender_domain: str, trusted_domain: str) -> bool:
+    s = (sender_domain or "").strip(".").lower()
+    t = (trusted_domain or "").strip(".").lower()
+    if not s or not t:
+        return False
+    return s == t or s.endswith(f".{t}")
+
+
+def _email_domain(from_header: str) -> str:
+    addr = parseaddr(from_header or "")[1].strip().lower()
+    if "@" not in addr:
+        return ""
+    return addr.rsplit("@", 1)[1].strip().lower()
+
+
+def _extract_reply_to_email(from_header: str) -> str:
+    return parseaddr(from_header or "")[1].strip()
+
+
+def _host_from_url(url: Optional[str]) -> str:
+    if not url:
+        return ""
+    try:
+        return (urlparse(url).hostname or "").strip().lower()
+    except Exception:
+        return ""
 
 
 class EmailAgent(BaseAgent):
@@ -62,6 +135,15 @@ class EmailAgent(BaseAgent):
         self._personal_email = profile.personal.personal_email
         self._recruiter_threshold = settings.get("thresholds", {}).get(
             "recruiter_reply_min_score", 0.7
+        )
+        self._recruiter_cls_conf_threshold = settings.get("thresholds", {}).get(
+            "recruiter_reply_min_classification_confidence", 0.75
+        )
+        self._recruiter_require_sender_domain_match = settings.get("thresholds", {}).get(
+            "recruiter_reply_require_sender_domain_match", True
+        )
+        self._recruiter_block_free_email_domains = settings.get("thresholds", {}).get(
+            "recruiter_reply_block_free_email_domains", True
         )
 
         # Cache label IDs (populated on first run)
@@ -190,13 +272,34 @@ class EmailAgent(BaseAgent):
         linked_job: Optional[Job],
     ) -> tuple[str, str]:
         """Auto-reply to recruiter outreach if the linked job score is high enough."""
+        if not linked_job:
+            self.logger.info("  Recruiter outreach ignored (no linked job)")
+            return "ignored", "no linked job"
+
         score = linked_job.match_score if linked_job and linked_job.match_score else 0.0
+
+        if result.confidence < self._recruiter_cls_conf_threshold:
+            self.logger.info(
+                "  Recruiter outreach ignored "
+                f"(classification confidence={result.confidence:.2f} < "
+                f"{self._recruiter_cls_conf_threshold})"
+            )
+            return (
+                "ignored",
+                f"classification confidence={result.confidence:.2f} below threshold",
+            )
 
         if score < self._recruiter_threshold:
             self.logger.info(
                 f"  Recruiter outreach ignored (score={score:.2f} < {self._recruiter_threshold})"
             )
             return "ignored", f"score={score:.2f} below threshold"
+
+        if self._recruiter_require_sender_domain_match:
+            trusted, reason = self._is_trusted_recruiter_sender(msg.from_address, linked_job)
+            if not trusted:
+                self.logger.info(f"  Recruiter outreach ignored ({reason})")
+                return "ignored", reason
 
         # Generate auto-reply
         job_title = linked_job.title if linked_job else (result.company_name or "the role")
@@ -212,7 +315,10 @@ class EmailAgent(BaseAgent):
         )
         self.log_llm_usage(**usage)
 
-        reply_to = msg.from_address
+        reply_to = _extract_reply_to_email(msg.from_address)
+        if not reply_to:
+            self.logger.info("  Recruiter outreach ignored (invalid sender address)")
+            return "ignored", "invalid sender address"
         subject = f"Re: {msg.subject}"
         success = self._gmail.send_message(reply_to, subject, reply_text)
         self.logger.info(f"  Auto-replied to recruiter: {reply_to}")
@@ -231,9 +337,45 @@ class EmailAgent(BaseAgent):
         for status in ("applied", "interviewing", "qualified", "rejected", "offer"):
             jobs = job_repo.list_by_status(status)
             for job in jobs:
-                if company_lower in job.company.lower() or job.company.lower() in company_lower:
+                if _company_names_match(company_lower, job.company):
                     return job
         return None
+
+    def _is_trusted_recruiter_sender(
+        self, from_address: str, linked_job: Job
+    ) -> tuple[bool, str]:
+        sender_domain = _email_domain(from_address)
+        if not sender_domain:
+            return False, "invalid sender domain"
+
+        if self._recruiter_block_free_email_domains and sender_domain in _FREE_EMAIL_DOMAINS:
+            return False, f"sender domain {sender_domain} is free-email"
+
+        trusted_domains: set[str] = set()
+        company_domain = (getattr(linked_job, "company_domain", None) or "").strip().lower()
+        if company_domain:
+            trusted_domains.add(company_domain)
+
+        ext_host = _host_from_url(getattr(linked_job, "external_url", None))
+        if ext_host:
+            trusted_domains.add(ext_host)
+
+        job_host = _host_from_url(getattr(linked_job, "job_url", None))
+        if job_host:
+            trusted_domains.add(job_host)
+
+        for domain in trusted_domains:
+            if _domain_matches(sender_domain, domain):
+                return True, "sender domain trusted"
+
+        # Fallback: company-name token should appear in sender domain (e.g., bigcorp.com).
+        company_tokens = [
+            t for t in _normalize_company_tokens(getattr(linked_job, "company", "")) if len(t) >= 4
+        ]
+        if any(tok in sender_domain for tok in company_tokens):
+            return True, "sender domain matches company token"
+
+        return False, f"sender domain {sender_domain} does not match linked job"
 
     def _forward_note(self, result: ClassificationResult, linked_job: Optional[Job]) -> str:
         """Build a short context note prepended to forwarded emails."""

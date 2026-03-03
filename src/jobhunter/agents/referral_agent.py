@@ -2,12 +2,15 @@
 
 import asyncio
 import html
+import ipaddress
 import json
 import re
+import socket
 from datetime import date
 from pathlib import Path
 from typing import Optional
 from urllib import request as urllib_request
+from urllib.parse import urlparse
 
 from ..llm.client import ClaudeClient
 from ..llm.cover_letter import (
@@ -50,6 +53,53 @@ _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _WHITESPACE_RE = re.compile(r"\s{3,}")
 
 
+def _is_linkedin_hostname(hostname: str) -> bool:
+    host = (hostname or "").strip(".").lower()
+    return host == "linkedin.com" or host.endswith(".linkedin.com")
+
+
+def _validate_referral_url(url: str) -> tuple[str, str]:
+    """Validate URL and return (normalized_url, hostname)."""
+    parsed = urlparse((url or "").strip())
+    scheme = (parsed.scheme or "").lower()
+    if scheme != "https":
+        raise ValueError("Only https:// URLs are allowed for referral fetches.")
+
+    host = (parsed.hostname or "").strip().lower()
+    if not host:
+        raise ValueError("URL must include a valid hostname.")
+
+    if host in {"localhost"} or host.endswith(".local"):
+        raise ValueError("Localhost and .local domains are not allowed.")
+
+    return parsed.geturl(), host
+
+
+def _assert_public_hostname(hostname: str, port: int = 443) -> None:
+    """
+    Reject hostnames that resolve to non-public IPs (SSRF guard).
+    """
+    try:
+        infos = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+    except socket.gaierror as e:
+        raise ValueError(f"Unable to resolve hostname: {hostname}") from e
+
+    if not infos:
+        raise ValueError(f"Unable to resolve hostname: {hostname}")
+
+    for info in infos:
+        sockaddr = info[4]
+        ip_raw = sockaddr[0] if isinstance(sockaddr, tuple) and sockaddr else ""
+        try:
+            ip_obj = ipaddress.ip_address(ip_raw)
+        except ValueError:
+            raise ValueError(f"Invalid resolved IP for {hostname}: {ip_raw}")
+        if not ip_obj.is_global:
+            raise ValueError(
+                f"Refusing to fetch non-public network target: {hostname} -> {ip_obj}"
+            )
+
+
 def _strip_html(raw: str) -> str:
     """Remove HTML tags and unescape entities; collapse excessive whitespace."""
     text = _HTML_TAG_RE.sub(" ", raw)
@@ -65,7 +115,8 @@ async def _fetch_page_text(url: str, browser_session=None) -> str:
     LinkedIn URLs use the supplied BrowserSession (new tab).
     All other URLs use urllib (stdlib) so no extra dependencies are needed.
     """
-    is_linkedin = "linkedin.com" in url.lower()
+    safe_url, hostname = _validate_referral_url(url)
+    is_linkedin = _is_linkedin_hostname(hostname)
 
     if is_linkedin:
         if browser_session is None:
@@ -73,10 +124,10 @@ async def _fetch_page_text(url: str, browser_session=None) -> str:
                 "A BrowserSession is required to fetch LinkedIn URLs. "
                 "Pass --url with a non-LinkedIn URL, or run with a browser session."
             )
-        logger.info(f"Fetching LinkedIn URL via browser: {url}")
+        logger.info(f"Fetching LinkedIn URL via browser: {safe_url}")
         page = await browser_session.new_page()
         try:
-            await page.goto(url, timeout=30_000)
+            await page.goto(safe_url, timeout=30_000)
             await page.wait_for_load_state("domcontentloaded")
             text = await page.inner_text("body")
         finally:
@@ -84,11 +135,12 @@ async def _fetch_page_text(url: str, browser_session=None) -> str:
         return text.strip()
 
     # Non-LinkedIn: use urllib in a thread so the coroutine stays async
-    logger.info(f"Fetching URL via urllib: {url}")
+    _assert_public_hostname(hostname)
+    logger.info(f"Fetching URL via urllib: {safe_url}")
 
     def _do_fetch() -> str:
         req = urllib_request.Request(
-            url,
+            safe_url,
             headers={
                 "User-Agent": (
                     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
