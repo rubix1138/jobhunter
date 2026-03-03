@@ -3,6 +3,7 @@
 import asyncio
 from pathlib import Path
 from typing import Optional
+import re
 
 from patchright.async_api import Page, TimeoutError as PlaywrightTimeout
 
@@ -61,6 +62,12 @@ _REVIEW_INDICATORS = ["review", "preview", "confirm"]
 
 _MAX_STEPS = 20        # safety cap on modal steps
 _FIELD_TIMEOUT = 8_000
+_VALIDATION_ERR_SEL = (
+    ".artdeco-inline-feedback--error, "
+    ".fb-form-element__error-text, "
+    "[class*='error-message'], "
+    ".jobs-easy-apply-form-element__error"
+)
 
 
 class LinkedInEasyApplicator(BaseApplicator):
@@ -149,6 +156,7 @@ class LinkedInEasyApplicator(BaseApplicator):
         _last_step_fingerprint: str = ""
         _stuck_count: int = 0
         _STUCK_LIMIT = 3  # abort after 3 consecutive steps with identical content
+        _last_validation_errors: list[str] = []
 
         async def _step_fingerprint() -> str:
             """Return a short string identifying the current modal step content."""
@@ -194,6 +202,13 @@ class LinkedInEasyApplicator(BaseApplicator):
                     f"Step content unchanged after Next click "
                     f"({_stuck_count}/{_STUCK_LIMIT}): {fingerprint!r}"
                 )
+                if _stuck_count >= 2 and _last_validation_errors:
+                    remediated = await self._remediate_validation_groups(job)
+                    if remediated:
+                        self.logger.warning(
+                            f"Applied required-field remediation to {remediated} "
+                            "error group(s) before retrying Next"
+                        )
                 if _stuck_count >= _STUCK_LIMIT:
                     self.logger.error(
                         "Form not advancing — likely a required field LinkedIn "
@@ -215,20 +230,9 @@ class LinkedInEasyApplicator(BaseApplicator):
             await random_delay(1.0, 2.5)
 
             # Log any validation errors visible after clicking Next
-            try:
-                err_els = await self._page.query_selector_all(
-                    ".artdeco-inline-feedback--error, "
-                    ".fb-form-element__error-text, "
-                    "[class*='error-message'], "
-                    ".jobs-easy-apply-form-element__error"
-                )
-                if err_els:
-                    for el in err_els[:5]:
-                        txt = (await el.inner_text()).strip()
-                        if txt:
-                            self.logger.warning(f"  Validation error: {txt!r}")
-            except Exception:
-                pass
+            _last_validation_errors = await self._collect_validation_errors()
+            for txt in _last_validation_errors[:5]:
+                self.logger.warning(f"  Validation error: {txt!r}")
 
         self.logger.error("Exceeded max modal steps — aborting")
         return False
@@ -687,10 +691,15 @@ class LinkedInEasyApplicator(BaseApplicator):
             except Exception as e:
                 self.logger.debug(f"Field group error: {e}")
 
-    async def _fill_field_group(self, group, context: str) -> None:
+    async def _fill_field_group(
+        self,
+        group,
+        context: str,
+        prefer_safe_defaults: bool = False,
+    ) -> None:
         """Fill a single form field group (label + input)."""
         # Extract label text
-        label_el = await group.query_selector("label, legend, span.t-bold")
+        label_el = await group.query_selector("label, legend, span.t-bold, [id*='label']")
         question = ""
         if label_el:
             question = (await label_el.inner_text()).strip()
@@ -706,79 +715,161 @@ class LinkedInEasyApplicator(BaseApplicator):
 
         if radio_inputs:
             self.logger.info(f"  field[radio] q={question[:60]!r}")
-            await self._handle_radio(group, question, radio_inputs, context)
+            await self._handle_radio(
+                group, question, radio_inputs, context, prefer_safe_defaults=prefer_safe_defaults
+            )
         elif select_el:
             self.logger.info(f"  field[select] q={question[:60]!r}")
-            await self._handle_select(group, question, select_el, context)
+            await self._handle_select(
+                group, question, select_el, context, prefer_safe_defaults=prefer_safe_defaults
+            )
         elif textarea_el:
             self.logger.info(f"  field[textarea] q={question[:60]!r}")
             await self._handle_textarea(question, textarea_el, context)
         elif text_input:
             self.logger.info(f"  field[text] q={question[:60]!r}")
-            await self._handle_text_input(question, text_input, context)
+            await self._handle_text_input(
+                question, text_input, context, prefer_safe_defaults=prefer_safe_defaults
+            )
         else:
             self.logger.debug(f"  field[unknown] q={question[:60]!r} — no input found")
 
-    async def _handle_radio(self, group, question: str, inputs, context: str) -> None:
+    async def _handle_radio(
+        self,
+        group,
+        question: str,
+        inputs,
+        context: str,
+        prefer_safe_defaults: bool = False,
+    ) -> None:
         options = []
+        labels = []
         for inp in inputs:
             label = await group.query_selector(
                 f"label[for='{await inp.get_attribute('id')}']"
             )
             if label:
-                options.append((await label.inner_text()).strip())
+                label_text = (await label.inner_text()).strip()
+                options.append(label_text)
+                labels.append((label_text, label))
 
         self.logger.info(f"    radio options: {options}")
-        answer = await self.answer_question(question, "radio", options, context)
-        self.record_qa(question, answer)
-        self.logger.info(f"    radio answer: {answer.answer!r} (src={answer.source}, conf={answer.confidence:.2f})")
+        target = ""
+        if prefer_safe_defaults:
+            target = self._preferred_option(options, question) or ""
+            self.logger.info(f"    radio remediation target: {target!r}")
+        else:
+            answer = await self.answer_question(question, "radio", options, context)
+            self.record_qa(question, answer)
+            self.logger.info(
+                f"    radio answer: {answer.answer!r} "
+                f"(src={answer.source}, conf={answer.confidence:.2f})"
+            )
+            target = (answer.answer or "").strip()
+            if not target:
+                target = self._preferred_option(options, question) or ""
 
-        if not answer.answer:
-            self.logger.warning(f"    radio: no answer returned, skipping click")
-            return
-
-        # Click the matching radio label
-        for inp in inputs:
-            inp_id = await inp.get_attribute("id") or ""
-            label = await group.query_selector(f"label[for='{inp_id}']")
-            if label:
-                label_text = (await label.inner_text()).strip()
-                if label_text.lower() == answer.answer.lower():
+        # Click the matching radio label (exact first, then fuzzy)
+        if target:
+            target_norm = target.lower()
+            for label_text, label in labels:
+                if label_text.lower() == target_norm:
                     await label.click()
                     self.logger.info(f"    radio clicked: {label_text!r}")
                     await micro_delay()
                     return
+            for label_text, label in labels:
+                l = label_text.lower()
+                if target_norm in l or l in target_norm:
+                    await label.click()
+                    self.logger.info(f"    radio clicked (fuzzy): {label_text!r}")
+                    await micro_delay()
+                    return
 
-        # Fuzzy fallback — click first option
-        self.logger.warning(f"    radio: no label matched {answer.answer!r}, clicking first input")
+        # Fallback — click first label when present, else first input
+        self.logger.warning(f"    radio: no label matched {target!r}, using fallback")
+        if labels:
+            await labels[0][1].click()
+            await micro_delay()
+            return
         if inputs:
             await inputs[0].click()
+            await micro_delay()
 
-    async def _handle_select(self, group, question: str, select_el, context: str) -> None:
+    async def _handle_select(
+        self,
+        group,
+        question: str,
+        select_el,
+        context: str,
+        prefer_safe_defaults: bool = False,
+    ) -> None:
         option_els = await select_el.query_selector_all("option")
-        options = [
-            (await o.inner_text()).strip()
-            for o in option_els
-            if (await o.get_attribute("value") or "") not in ("", "Select an option")
-        ]
+        options = []
+        for o in option_els:
+            label = (await o.inner_text()).strip()
+            value = (await o.get_attribute("value") or "").strip()
+            if not label:
+                continue
+            if value == "":
+                continue
+            if "select" in label.lower() and "option" in label.lower():
+                continue
+            options.append((label, value))
 
-        self.logger.info(f"    select options: {options}")
-        answer = await self.answer_question(question, "select", options, context)
-        self.record_qa(question, answer)
-        self.logger.info(f"    select answer: {answer.answer!r} (src={answer.source}, conf={answer.confidence:.2f})")
+        option_labels = [l for l, _ in options]
+        self.logger.info(f"    select options: {option_labels}")
+        target = ""
+        if prefer_safe_defaults:
+            target = self._preferred_option(option_labels, question) or ""
+            self.logger.info(f"    select remediation target: {target!r}")
+        else:
+            answer = await self.answer_question(question, "select", option_labels, context)
+            self.record_qa(question, answer)
+            self.logger.info(
+                f"    select answer: {answer.answer!r} "
+                f"(src={answer.source}, conf={answer.confidence:.2f})"
+            )
+            target = (answer.answer or "").strip()
+        chosen_label = None
+        chosen_value = None
 
-        if not answer.answer:
-            return
+        if target:
+            t = target.lower()
+            for label, value in options:
+                if label.lower() == t:
+                    chosen_label, chosen_value = label, value
+                    break
+            if chosen_label is None:
+                for label, value in options:
+                    l = label.lower()
+                    if t in l or l in t:
+                        chosen_label, chosen_value = label, value
+                        break
+
+        if chosen_label is None:
+            preferred = self._preferred_option(option_labels, question)
+            if preferred:
+                for label, value in options:
+                    if label == preferred:
+                        chosen_label, chosen_value = label, value
+                        break
+        if chosen_label is None and options:
+            chosen_label, chosen_value = options[0]
 
         try:
-            await select_el.select_option(label=answer.answer)
-            self.logger.info(f"    select_option(label=) succeeded")
+            if chosen_label is not None:
+                await select_el.select_option(label=chosen_label)
+                self.logger.info(f"    select_option(label={chosen_label!r}) succeeded")
         except Exception:
             try:
-                await select_el.select_option(value=answer.answer)
-                self.logger.info(f"    select_option(value=) succeeded")
+                if chosen_value is not None:
+                    await select_el.select_option(value=chosen_value)
+                    self.logger.info(f"    select_option(value={chosen_value!r}) succeeded")
             except Exception:
-                self.logger.warning(f"Could not select option {answer.answer!r} for {question!r}")
+                self.logger.warning(
+                    f"Could not select option {chosen_label or target!r} for {question!r}"
+                )
 
         await micro_delay()
 
@@ -790,15 +881,134 @@ class LinkedInEasyApplicator(BaseApplicator):
             await textarea_el.type(answer.answer, delay=30)
             await micro_delay()
 
-    async def _handle_text_input(self, question: str, input_el, context: str) -> None:
-        answer = await self.answer_question(question, "text", None, context)
-        self.record_qa(question, answer)
-        self.logger.info(f"    text answer: {answer.answer!r} (src={answer.source}, conf={answer.confidence:.2f})")
-        if answer.answer:
+    async def _handle_text_input(
+        self,
+        question: str,
+        input_el,
+        context: str,
+        prefer_safe_defaults: bool = False,
+    ) -> None:
+        target = ""
+        if prefer_safe_defaults:
+            target = await self._safe_text_fallback(question, input_el)
+            if not target:
+                return
+            self.logger.info(f"    text remediation target: {target!r}")
+        else:
+            answer = await self.answer_question(question, "text", None, context)
+            self.record_qa(question, answer)
+            self.logger.info(
+                f"    text answer: {answer.answer!r} (src={answer.source}, conf={answer.confidence:.2f})"
+            )
+            target = answer.answer or ""
+
+        if target:
             await input_el.click()
             await micro_delay()
             # Use fill() to properly update React's controlled component state.
             # type() fires keyboard events but doesn't reliably trigger React's
             # synthetic onChange for <input type="number"> elements.
-            await input_el.fill(answer.answer)
+            await input_el.fill(target)
             await micro_delay()
+
+    async def _safe_text_fallback(self, question: str, input_el) -> str:
+        """Return a conservative fallback value for stubborn required text inputs."""
+        q = (question or "").lower()
+        try:
+            input_type = (await input_el.get_attribute("type") or "").lower()
+        except Exception:
+            input_type = ""
+
+        if input_type == "number" or re.search(r"\byears?\b|\bmonths?\b", q):
+            return "1"
+        if "email" in q:
+            return getattr(self._profile, "email", "") or ""
+        if "phone" in q:
+            return getattr(self._profile, "phone", "") or ""
+        if "linkedin" in q:
+            return getattr(self._profile, "linkedin_url", "") or ""
+        return ""
+
+    async def _collect_validation_errors(self) -> list[str]:
+        """Collect visible LinkedIn validation messages from the current step."""
+        try:
+            err_els = await self._page.query_selector_all(_VALIDATION_ERR_SEL)
+        except Exception:
+            return []
+
+        messages: list[str] = []
+        for el in err_els:
+            try:
+                txt = (await el.inner_text()).strip()
+            except Exception:
+                continue
+            if txt:
+                messages.append(txt)
+        return messages
+
+    async def _remediate_validation_groups(self, job: Job) -> int:
+        """
+        Re-fill only field groups currently marked with validation errors,
+        using safe defaults to break required-field loops.
+        """
+        context = f"{job.title} at {job.company}"
+        if self._sdui_flow:
+            groups = await self._page.query_selector_all(".jobs-easy-apply-form-section__grouping")
+            if not groups:
+                groups = await self._page.query_selector_all("fieldset, .artdeco-text-input--container")
+        else:
+            groups = await self._page.query_selector_all(_FORM_FIELDS)
+            if not groups:
+                groups = await self._page.query_selector_all(
+                    f"{_MODAL} fieldset, {_MODAL} .artdeco-text-input--container"
+                )
+
+        remediated = 0
+        for group in groups:
+            try:
+                has_error = await group.query_selector(_VALIDATION_ERR_SEL)
+                if not has_error:
+                    continue
+                await self._fill_field_group(group, context, prefer_safe_defaults=True)
+                remediated += 1
+            except Exception as e:
+                self.logger.debug(f"Validation remediation failed on a group: {e}")
+        return remediated
+
+    def _preferred_option(self, options: list[str], question: str) -> Optional[str]:
+        """Pick a safe fallback option when the model answer is empty/non-matching."""
+        if not options:
+            return None
+        opts = [o.strip() for o in options if o and o.strip()]
+        if not opts:
+            return None
+
+        lowered = [o.lower() for o in opts]
+        q = (question or "").lower()
+
+        if "citizen" in q or "authorized" in q or "eligible to work" in q:
+            for i, o in enumerate(lowered):
+                if o in ("yes", "y"):
+                    return opts[i]
+
+        for token in ("prefer not", "choose not", "decline", "not disclose", "not to say"):
+            for i, o in enumerate(lowered):
+                if token in o:
+                    return opts[i]
+
+        if "refer" in q or "how did you hear" in q or "source" in q:
+            referral_order = (
+                "linkedin",
+                "company website",
+                "job board",
+                "indeed",
+                "glassdoor",
+                "other",
+                "employee referral",
+            )
+            for token in referral_order:
+                for i, o in enumerate(lowered):
+                    if token in o:
+                        return opts[i]
+
+        return opts[0]

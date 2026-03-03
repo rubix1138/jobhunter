@@ -5,6 +5,13 @@ Automated job search & application system with three AI agents (search, apply, e
 See `DESIGN.md` for full architecture and `pyproject.toml` for dependencies.
 
 ## Latest Update (2026-02-27)
+- **`prepare-referral` command added** — new `jobhunter prepare-referral --url URL` command generates tailored resume + cover letter PDFs for a referred job without touching any application form or database.
+- `agents/referral_agent.py` created: fetches the posting (browser for LinkedIn, `urllib` for everything else), optionally extracts title/company via Sonnet, then runs the same Opus resume + cover letter pipeline used by the apply agent.
+- `scheduler.py` gained `run_referral_once()` helper; `main.py` gained `prepare-referral` subparser and `cmd_prepare_referral` handler.
+- `tests/test_scheduler/test_cli.py` updated to include `prepare-referral` in the expected subcommand set.
+- **405 tests passing** (all green).
+
+Previous update (2026-02-27):
 - **ARCHITECTURE PIVOT**: Replaced `WorkdayApplicator` (4,089 lines) and `GenericApplicator` (298 lines) with a single `FormFillingAgent` (~577 lines) in `applicators/form_filling.py`.
 - FormFillingAgent is a universal applicator that uses AX tree + Vision + LLM planning instead of platform-specific CSS selectors. It handles any ATS (Workday, Greenhouse, Lever, iCIMS, etc.) through the same code path.
 - `apply_agent.py` dispatch simplified: `easy_apply` → LinkedInEasyApplicator, **everything else** → FormFillingAgent.
@@ -50,6 +57,9 @@ jobhunter daily-summary           # Print today's stats
 jobhunter platform-stats          # Show ATS platform distribution of discovered jobs
 jobhunter qa-log                  # Show Q&A log for most recent application with Q&A
 jobhunter qa-log --app-id 42      # Show Q&A log for a specific application
+jobhunter prepare-referral --url "https://..."                         # Fetch posting → tailored resume + cover letter PDFs
+jobhunter prepare-referral --url "https://..." --title "CISO" --company "Acme"  # Override extraction (skips Sonnet call)
+jobhunter prepare-referral --url "https://..." --output-dir ~/Desktop/referral  # Custom output directory
 ```
 
 ## Phase Status
@@ -73,6 +83,7 @@ jobhunter qa-log --app-id 42      # Show Q&A log for a specific application
 | 15 | Planner-Actor-Validator Loop for Workday | ✅ Complete |
 | 16 | Workday Vision Fallback + Drop-Down Field Locator Hardening | ✅ Complete |
 | 19 | FormFillingAgent: Replace platform-specific applicators with universal agent | 🔄 In Progress |
+| 20 | `prepare-referral` command: fetch posting → tailored PDFs, no DB/form touch | ✅ Complete |
 
 ---
 

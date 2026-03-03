@@ -335,6 +335,31 @@ class TestAgentRunRepo:
         runs = run_repo.list_recent("test_agent", limit=3)
         assert len(runs) == 3
 
+    def test_reconcile_stale_running_marks_error(self, conn, run_repo):
+        run_id = run_repo.start("apply_agent")
+        conn.execute(
+            "UPDATE agent_runs SET started_at=datetime('now', '-4 hours') WHERE id=?",
+            (run_id,),
+        )
+        conn.commit()
+
+        fixed = run_repo.reconcile_stale_running(stale_after_minutes=60)
+        assert fixed == 1
+
+        row = conn.execute("SELECT * FROM agent_runs WHERE id=?", (run_id,)).fetchone()
+        assert row["status"] == "error"
+        assert row["finished_at"] is not None
+        assert "Reconciled stale run" in (row["error_message"] or "")
+
+    def test_reconcile_stale_running_keeps_fresh_rows(self, conn, run_repo):
+        run_id = run_repo.start("search_agent")
+        fixed = run_repo.reconcile_stale_running(stale_after_minutes=180)
+        assert fixed == 0
+
+        row = conn.execute("SELECT * FROM agent_runs WHERE id=?", (run_id,)).fetchone()
+        assert row["status"] == "running"
+        assert row["finished_at"] is None
+
 
 # ── LlmUsageRepo ─────────────────────────────────────────────────────────────
 

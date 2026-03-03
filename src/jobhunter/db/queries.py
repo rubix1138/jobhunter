@@ -177,6 +177,17 @@ ORDER BY started_at DESC
 LIMIT ?
 """
 
+RECONCILE_STALE_RUNNING_AGENT_RUNS = """
+UPDATE agent_runs
+SET
+    finished_at = datetime('now'),
+    status = 'error',
+    error_message = COALESCE(error_message, ?)
+WHERE status = 'running'
+  AND finished_at IS NULL
+  AND datetime(started_at) <= datetime('now', ?)
+"""
+
 # ── LLM Usage ─────────────────────────────────────────────────────────────────
 
 INSERT_LLM_USAGE = """

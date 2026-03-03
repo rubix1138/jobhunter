@@ -262,6 +262,29 @@ class AgentRunRepo:
         ).fetchall()
         return [_row_to_agent_run(r) for r in rows]
 
+    def reconcile_stale_running(
+        self,
+        stale_after_minutes: int = 180,
+        reason: Optional[str] = None,
+    ) -> int:
+        """
+        Mark old 'running' rows as errored when no finish record exists.
+
+        Returns the number of reconciled rows.
+        """
+        timeout_min = max(1, int(stale_after_minutes))
+        message = reason or (
+            f"Reconciled stale run: previous process ended before completion "
+            f"(>{timeout_min} minutes old)"
+        )
+        modifier = f"-{timeout_min} minutes"
+        cur = self._conn.execute(
+            queries.RECONCILE_STALE_RUNNING_AGENT_RUNS,
+            (message, modifier),
+        )
+        self._conn.commit()
+        return int(cur.rowcount or 0)
+
 
 class LlmUsageRepo:
     def __init__(self, conn: sqlite3.Connection) -> None:

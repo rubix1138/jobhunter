@@ -11,6 +11,7 @@ from jobhunter.scheduler import (
     JobHunterScheduler,
     build_daily_summary,
     print_daily_summary,
+    _build_browser_session,
     _build_llm,
     run_referral_once,
 )
@@ -317,6 +318,31 @@ class TestBuildLlm:
             MockClient.assert_called_once_with(
                 sonnet_model="claude-sonnet-4-6",
                 opus_model="claude-opus-4-6",
+            )
+
+
+class TestBuildBrowserSession:
+    def test_uses_minimize_setting_and_label(self):
+        settings = {"browser": {"start_minimized": True}}
+        with (
+            patch("jobhunter.scheduler.os.getpid", return_value=4321),
+            patch("jobhunter.scheduler.BrowserSession") as MockSession,
+        ):
+            _build_browser_session(settings, "search-now")
+            MockSession.assert_called_once_with(
+                start_minimized=True,
+                window_label="search-now-pid4321",
+            )
+
+    def test_defaults_minimize_false(self):
+        with (
+            patch("jobhunter.scheduler.os.getpid", return_value=999),
+            patch("jobhunter.scheduler.BrowserSession") as MockSession,
+        ):
+            _build_browser_session({}, "scheduler")
+            MockSession.assert_called_once_with(
+                start_minimized=False,
+                window_label="scheduler-pid999",
             )
 
 

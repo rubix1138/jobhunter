@@ -66,6 +66,15 @@ def _extract_domain(url: Optional[str]) -> Optional[str]:
         return None
 
 
+def _domain_matches_rule(domain: str, rule: str) -> bool:
+    """Return True when domain equals rule or is a subdomain of rule."""
+    d = (domain or "").strip(".").lower()
+    r = (rule or "").strip(".").lower()
+    if not d or not r:
+        return False
+    return d == r or d.endswith(f".{r}")
+
+
 def _failure_reason_prefix(error_message: Optional[str]) -> str:
     """Normalize stored error into a stable reason prefix (before metadata pipe)."""
     if not error_message:
@@ -134,6 +143,11 @@ class ApplyAgent(BaseAgent):
         self._reprobe_blocked_workday = reprobe_blocked_workday
         self._last_apply_failure_message: Optional[str] = None
         self._blocked_domains_this_run: set[str] = set()
+        self._excluded_domains = {
+            d.strip().lower()
+            for d in settings.get("global_filters", {}).get("exclude_domains", [])
+            if d and d.strip()
+        }
         self._vision = VisionAnalyzer(llm)
         self._vault = CredentialVault()  # reads FERNET_KEY from env
         # Try to initialise Gmail client for email verification flows (optional)
@@ -242,6 +256,14 @@ class ApplyAgent(BaseAgent):
         self._last_apply_failure_message = None
         domain = _extract_domain(job.external_url)
 
+        if domain and self._is_excluded_domain(domain):
+            self.logger.info(
+                f"Skipping {job.title} @ {job.company} — domain {domain} is "
+                "blacklisted by global_filters.exclude_domains"
+            )
+            job_repo.update_status(job.id, "skipped")
+            return False
+
         if domain and domain in self._blocked_domains_this_run:
             self.logger.info(
                 f"Skipping {job.title} @ {job.company} — domain {domain} was "
@@ -317,6 +339,7 @@ class ApplyAgent(BaseAgent):
                 self._conn.commit()
                 job.apply_type = apply_type
                 job.external_url = external_url
+                domain = _extract_domain(job.external_url)
             else:
                 self.logger.warning(
                     f"Cannot determine apply method for {job.title} @ {job.company} — skipping"
@@ -329,6 +352,13 @@ class ApplyAgent(BaseAgent):
                 self.logger.info(
                     f"Skipping {job.title} @ {job.company} — "
                     f"re-detection returned apply_type={apply_type!r}"
+                )
+                job_repo.update_status(job.id, "skipped")
+                return False
+            if domain and self._is_excluded_domain(domain):
+                self.logger.info(
+                    f"Skipping {job.title} @ {job.company} — domain {domain} is "
+                    "blacklisted by global_filters.exclude_domains"
                 )
                 job_repo.update_status(job.id, "skipped")
                 return False
@@ -458,6 +488,11 @@ class ApplyAgent(BaseAgent):
             return row is not None
         except Exception:
             return False
+
+    def _is_excluded_domain(self, domain: Optional[str]) -> bool:
+        if not domain or not self._excluded_domains:
+            return False
+        return any(_domain_matches_rule(domain, rule) for rule in self._excluded_domains)
 
     def _is_domain_in_challenge_cooldown(self, domain: str) -> bool:
         """Return True if domain recently failed on captcha/email verification challenges."""

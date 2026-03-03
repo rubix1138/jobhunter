@@ -12,6 +12,7 @@ import yaml
 from dotenv import load_dotenv
 
 from .db.engine import get_connection, init_db, run_migrations
+from .db.repository import AgentRunRepo
 from .utils.logging import setup_logging, get_logger
 
 load_dotenv()
@@ -47,6 +48,31 @@ def _load_profile():
     except Exception as e:
         print(f"ERROR: Profile validation failed: {e}")
         sys.exit(1)
+
+
+def _reconcile_stale_runs(
+    *,
+    stale_after_minutes: int | None = None,
+    emit_message: bool = False,
+) -> int:
+    """
+    Close stale agent_runs left in 'running' state by interrupted processes.
+    """
+    settings = _load_settings()
+    configured = settings.get("scheduler", {}).get("stale_run_timeout_min", 180)
+    timeout_min = int(stale_after_minutes if stale_after_minutes is not None else configured)
+
+    db_path = os.environ.get("DB_PATH", "data/jobhunter.db")
+    conn = init_db(db_path)
+    try:
+        repo = AgentRunRepo(conn)
+        fixed = repo.reconcile_stale_running(stale_after_minutes=timeout_min)
+    finally:
+        conn.close()
+
+    if fixed and emit_message:
+        print(f"Reconciled {fixed} stale running agent run(s).")
+    return fixed
 
 
 # ── Commands ──────────────────────────────────────────────────────────────────
@@ -96,6 +122,8 @@ def cmd_init(args) -> int:
 
 def cmd_status(args) -> int:
     """Show system status: recent agent runs and DB stats."""
+    _reconcile_stale_runs(emit_message=True)
+
     db_path = os.environ.get("DB_PATH", "data/jobhunter.db")
     conn = init_db(db_path)
 
@@ -154,6 +182,8 @@ def cmd_status(args) -> int:
 
 def cmd_run(args) -> int:
     """Start the scheduler — all agents run on their configured schedules."""
+    _reconcile_stale_runs(emit_message=True)
+
     settings = _load_settings()
     profile = _load_profile()
     queries = _load_queries()
@@ -180,6 +210,8 @@ def cmd_run(args) -> int:
 
 def cmd_search_now(args) -> int:
     """Run the search agent once immediately."""
+    _reconcile_stale_runs(emit_message=True)
+
     settings = _load_settings()
     profile = _load_profile()
     queries = _load_queries()
@@ -238,6 +270,8 @@ def _resolve_apply_types(raw: list[str]) -> list[str]:
 
 def cmd_apply_now(args) -> int:
     """Run the apply agent once immediately."""
+    _reconcile_stale_runs(emit_message=True)
+
     settings = _load_settings()
     profile = _load_profile()
     db_path = os.environ.get("DB_PATH", "data/jobhunter.db")
@@ -272,6 +306,8 @@ def cmd_apply_now(args) -> int:
 
 def cmd_check_email(args) -> int:
     """Run the email agent once immediately."""
+    _reconcile_stale_runs(emit_message=True)
+
     settings = _load_settings()
     profile = _load_profile()
     db_path = os.environ.get("DB_PATH", "data/jobhunter.db")

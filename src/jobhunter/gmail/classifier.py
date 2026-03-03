@@ -1,6 +1,7 @@
 """Email classification via Claude Sonnet."""
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -50,6 +51,65 @@ class ClassificationResult:
     new_job_status: Optional[str]
 
 
+def _extract_json_payload(text: str) -> str:
+    """Extract likely JSON payload from plain text or fenced markdown."""
+    raw = (text or "").strip()
+    if not raw:
+        return raw
+
+    # Common case: model wraps payload in ```json ... ```
+    fenced = re.search(r"```(?:json)?\s*(.*?)\s*```", raw, flags=re.IGNORECASE | re.DOTALL)
+    if fenced:
+        return fenced.group(1).strip()
+
+    # Truncated fenced output (missing closing ```) is still salvageable.
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE).strip()
+        raw = raw.removesuffix("```").strip()
+
+    # If there's extra prose around JSON, slice to first/last brace.
+    first_brace = raw.find("{")
+    last_brace = raw.rfind("}")
+    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+        return raw[first_brace:last_brace + 1].strip()
+
+    return raw
+
+
+def _coerce_partial_payload(raw: str) -> Optional[dict]:
+    """
+    Best-effort parse for truncated JSON responses.
+    Returns partial dict when key fields can be extracted, else None.
+    """
+    classification_match = re.search(r'"classification"\s*:\s*"([^"]+)"', raw)
+    if not classification_match:
+        return None
+
+    data: dict = {"classification": classification_match.group(1)}
+
+    confidence_match = re.search(r'"confidence"\s*:\s*([0-9]*\.?[0-9]+)', raw)
+    if confidence_match:
+        try:
+            data["confidence"] = float(confidence_match.group(1))
+        except ValueError:
+            pass
+
+    company_null = re.search(r'"company_name"\s*:\s*null', raw)
+    if company_null:
+        data["company_name"] = None
+    else:
+        company_match = re.search(r'"company_name"\s*:\s*"([^"]*)"', raw)
+        if company_match:
+            data["company_name"] = company_match.group(1)
+
+    # Reasoning may be truncated; capture what exists.
+    reasoning_match = re.search(r'"reasoning"\s*:\s*"([^"]*)', raw, flags=re.DOTALL)
+    if reasoning_match:
+        data["reasoning"] = reasoning_match.group(1).strip()
+
+    return data
+
+
 async def classify_email(
     llm: ClaudeClient,
     from_address: str,
@@ -71,8 +131,24 @@ async def classify_email(
         purpose="email_classification",
     )
 
+    payload = _extract_json_payload(text)
+
     try:
-        data = json.loads(text)
+        data = json.loads(payload)
+    except json.JSONDecodeError:
+        data = _coerce_partial_payload(payload)
+        if data is None:
+            logger.warning(f"Failed to parse classification response\nResponse: {text[:300]}")
+            return ClassificationResult(
+                classification="unknown",
+                confidence=0.0,
+                company_name=None,
+                reasoning="Parse error",
+                should_forward=True,
+                new_job_status=None,
+            ), usage
+
+    try:
         classification = data.get("classification", "unknown")
         if classification not in CLASSIFICATIONS:
             logger.warning(f"Unknown classification returned: {classification!r} — using 'unknown'")
@@ -96,8 +172,8 @@ async def classify_email(
         )
         return result, usage
 
-    except (json.JSONDecodeError, ValueError, KeyError) as e:
-        logger.warning(f"Failed to parse classification response: {e}\nResponse: {text[:300]}")
+    except (ValueError, KeyError, TypeError) as e:
+        logger.warning(f"Failed to normalize classification response: {e}\nResponse: {text[:300]}")
         return ClassificationResult(
             classification="unknown",
             confidence=0.0,

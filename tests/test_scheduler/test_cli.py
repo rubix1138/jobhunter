@@ -269,6 +269,29 @@ class TestCmdStatus:
         out = capsys.readouterr().out
         assert "BUDGET EXCEEDED" in out
 
+    def test_reconciles_stale_running_runs(self, db_path, capsys):
+        conn = init_db(db_path)
+        conn.execute(
+            "INSERT INTO agent_runs (agent_name, status, started_at) "
+            "VALUES ('apply_agent', 'running', datetime('now', '-5 hours'))"
+        )
+        conn.commit()
+        conn.close()
+
+        with patch("jobhunter.main._load_settings", return_value={"scheduler": {"stale_run_timeout_min": 60}}):
+            cmd_status(_FakeArgs())
+
+        out = capsys.readouterr().out
+        assert "Reconciled 1 stale running agent run(s)." in out
+
+        conn = init_db(db_path)
+        row = conn.execute(
+            "SELECT status, finished_at FROM agent_runs WHERE agent_name='apply_agent' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        conn.close()
+        assert row["status"] == "error"
+        assert row["finished_at"] is not None
+
 
 # ── cmd_daily_summary ─────────────────────────────────────────────────────────
 

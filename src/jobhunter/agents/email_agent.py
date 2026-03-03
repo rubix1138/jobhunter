@@ -1,6 +1,4 @@
 """Email Agent — poll Gmail, classify, act, and update job status."""
-
-import asyncio
 from typing import Optional
 
 from ..db.models import EmailLog, Job
@@ -74,14 +72,10 @@ class EmailAgent(BaseAgent):
         job_repo = JobRepo(self._conn)
 
         # Ensure Gmail labels exist
-        await asyncio.get_event_loop().run_in_executor(
-            None, self._ensure_labels
-        )
+        self._ensure_labels()
 
         # Fetch unread messages
-        message_ids = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: self._gmail.list_unread_inbox(max_results=50)
-        )
+        message_ids = self._gmail.list_unread_inbox(max_results=50)
         self.logger.info(f"Found {len(message_ids)} unread inbox messages")
 
         processed = 0
@@ -96,9 +90,7 @@ class EmailAgent(BaseAgent):
                 continue
 
             # Fetch full message
-            msg = await asyncio.get_event_loop().run_in_executor(
-                None, lambda mid=msg_id: self._gmail.get_message(mid)
-            )
+            msg = self._gmail.get_message(msg_id)
             if not msg:
                 continue
 
@@ -125,9 +117,7 @@ class EmailAgent(BaseAgent):
                 )
 
             # Mark as read
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda mid=msg_id: self._gmail.mark_read(mid)
-            )
+            self._gmail.mark_read(msg_id)
 
             # Store in email_log
             email_log = EmailLog(
@@ -167,16 +157,10 @@ class EmailAgent(BaseAgent):
 
         if result.should_forward:
             note = self._forward_note(result, linked_job)
-            success = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: self._gmail.forward_message(msg, self._personal_email, note=note),
-            )
+            success = self._gmail.forward_message(msg, self._personal_email, note=note)
             label = _CLASSIFICATION_LABELS.get(cls)
             if label and label in self._label_ids:
-                await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: self._gmail.apply_label(msg.message_id, self._label_ids[label]),
-                )
+                self._gmail.apply_label(msg.message_id, self._label_ids[label])
             action = "forwarded"
             details = f"→ {self._personal_email}" + (f" | label: {label}" if label else "")
             self.logger.info(f"  Forwarded to {self._personal_email}: {msg.subject!r}")
@@ -185,10 +169,7 @@ class EmailAgent(BaseAgent):
         if cls == "rejection":
             label_id = self._label_ids.get(_LABEL_REJECTION)
             if label_id:
-                await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: self._gmail.apply_label(msg.message_id, label_id),
-                )
+                self._gmail.apply_label(msg.message_id, label_id)
             self.logger.info(f"  Rejection logged: {msg.from_address}")
             return "labeled_rejected", f"company={result.company_name}"
 
@@ -196,9 +177,7 @@ class EmailAgent(BaseAgent):
             return await self._handle_recruiter(msg, result, linked_job)
 
         if cls == "spam":
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda: self._gmail.archive(msg.message_id)
-            )
+            self._gmail.archive(msg.message_id)
             self.logger.info(f"  Archived spam: {msg.subject!r}")
             return "archived", "classified as spam"
 
@@ -235,9 +214,7 @@ class EmailAgent(BaseAgent):
 
         reply_to = msg.from_address
         subject = f"Re: {msg.subject}"
-        success = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: self._gmail.send_message(reply_to, subject, reply_text)
-        )
+        success = self._gmail.send_message(reply_to, subject, reply_text)
         self.logger.info(f"  Auto-replied to recruiter: {reply_to}")
         return "auto_replied", f"to={reply_to}, score={score:.2f}"
 

@@ -415,6 +415,29 @@ class TestFailureReasonHelpers:
         ) is False
 
 
+class TestApplyDomainBlacklistHelpers:
+    def test_matches_exact_blacklisted_domain(self):
+        from jobhunter.agents.apply_agent import ApplyAgent
+
+        agent = ApplyAgent.__new__(ApplyAgent)
+        agent._excluded_domains = {"remotehunter.com"}
+        assert agent._is_excluded_domain("remotehunter.com") is True
+
+    def test_matches_subdomain_blacklisted_domain(self):
+        from jobhunter.agents.apply_agent import ApplyAgent
+
+        agent = ApplyAgent.__new__(ApplyAgent)
+        agent._excluded_domains = {"remotehunter.com"}
+        assert agent._is_excluded_domain("www.remotehunter.com") is True
+
+    def test_does_not_match_other_domain(self):
+        from jobhunter.agents.apply_agent import ApplyAgent
+
+        agent = ApplyAgent.__new__(ApplyAgent)
+        agent._excluded_domains = {"remotehunter.com"}
+        assert agent._is_excluded_domain("boards.greenhouse.io") is False
+
+
 class TestRetryCapPolicy:
     def _seed_job(self, conn, linkedin_job_id: str) -> int:
         conn.execute(

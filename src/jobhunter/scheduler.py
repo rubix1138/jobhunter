@@ -1,6 +1,7 @@
 """APScheduler wiring — runs all agents on configured schedules with graceful shutdown."""
 
 import asyncio
+import os
 import random
 import signal
 from datetime import datetime, date
@@ -21,6 +22,16 @@ from .utils.profile_loader import UserProfile
 from .utils.rate_limiter import RateLimiter
 
 logger = get_logger(__name__)
+
+
+def _build_browser_session(settings: dict, label: str) -> BrowserSession:
+    """Create BrowserSession from settings with a run-specific window label."""
+    browser_cfg = settings.get("browser", {}) if isinstance(settings, dict) else {}
+    labeled = f"{label}-pid{os.getpid()}"
+    return BrowserSession(
+        start_minimized=bool(browser_cfg.get("start_minimized", False)),
+        window_label=labeled,
+    )
 
 
 class JobHunterScheduler:
@@ -62,7 +73,7 @@ class JobHunterScheduler:
 
         self._llm = _build_llm(self._settings)
 
-        self._session = BrowserSession()
+        self._session = _build_browser_session(self._settings, "scheduler")
         await self._session.start()
         await self._session.ensure_linkedin_session()
 
@@ -238,7 +249,7 @@ class JobHunterScheduler:
 async def run_search_once(settings: dict, profile: UserProfile, queries: list[dict], db_path: str) -> None:
     """Run the search agent a single time (used by `search-now` command)."""
     llm = _build_llm(settings)
-    session = BrowserSession()
+    session = _build_browser_session(settings, "search-now")
     await session.start()
     await session.ensure_linkedin_session()
     try:
@@ -271,7 +282,7 @@ async def run_apply_once(
 ) -> None:
     """Run the apply agent a single time (used by `apply-now` command)."""
     llm = _build_llm(settings)
-    session = BrowserSession()
+    session = _build_browser_session(settings, "apply-now")
     await session.start()
     await session.ensure_linkedin_session()
     try:
@@ -317,7 +328,7 @@ async def run_referral_once(
     session: Optional[BrowserSession] = None
 
     if is_linkedin:
-        session = BrowserSession()
+        session = _build_browser_session(settings, "prepare-referral")
         await session.start()
         await session.ensure_linkedin_session()
 

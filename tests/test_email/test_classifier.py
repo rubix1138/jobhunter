@@ -186,6 +186,39 @@ class TestClassifyEmailHappyPath:
 
 class TestClassifyEmailFallback:
     @pytest.mark.asyncio
+    async def test_parses_json_wrapped_in_markdown_fence(self):
+        fenced = """```json
+{
+  "classification": "spam",
+  "confidence": 0.95,
+  "company_name": null,
+  "reasoning": "LinkedIn social update."
+}
+```"""
+        llm = _make_llm(fenced)
+        result, _ = await classify_email(llm, "a@b.com", "Sub", "Body")
+        assert result.classification == "spam"
+        assert result.confidence == pytest.approx(0.95)
+        assert result.company_name is None
+        assert result.should_forward is False
+
+    @pytest.mark.asyncio
+    async def test_salvages_truncated_json_response(self):
+        truncated = """```json
+{
+  "classification": "follow_up",
+  "confidence": 0.92,
+  "company_name": "Next Level Impacts",
+  "reasoning": "Application confirmation for role
+"""
+        llm = _make_llm(truncated)
+        result, _ = await classify_email(llm, "a@b.com", "Sub", "Body")
+        assert result.classification == "follow_up"
+        assert result.confidence == pytest.approx(0.92)
+        assert result.company_name == "Next Level Impacts"
+        assert result.should_forward is True
+
+    @pytest.mark.asyncio
     async def test_falls_back_on_invalid_json(self):
         llm = _make_llm("This is not JSON at all!")
         result, _ = await classify_email(llm, "a@b.com", "Sub", "Body")

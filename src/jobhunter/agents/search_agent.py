@@ -3,6 +3,7 @@
 import json
 import urllib.parse
 from typing import Optional
+from urllib.parse import urlparse
 
 from patchright.async_api import Page, TimeoutError as PlaywrightTimeout
 
@@ -97,6 +98,24 @@ _NEXT_PAGE_SELECTORS = [
     "button[aria-label='View next page']",
     "li.artdeco-pagination__indicator--number.selected + li button",
 ]
+
+
+def _domain_matches_rule(domain: str, rule: str) -> bool:
+    """Return True when domain equals rule or is a subdomain of rule."""
+    d = (domain or "").strip(".").lower()
+    r = (rule or "").strip(".").lower()
+    if not d or not r:
+        return False
+    return d == r or d.endswith(f".{r}")
+
+
+def _extract_domain(url: Optional[str]) -> Optional[str]:
+    if not url:
+        return None
+    try:
+        return urlparse(url).hostname
+    except Exception:
+        return None
 
 
 def build_search_url(
@@ -563,8 +582,11 @@ async def detect_apply_type(page: Page) -> tuple[str, Optional[str]]:
                     attr_val = await btn.get_attribute(attr)
                     if attr_val and attr_val.startswith("http"):
                         return _classify_external_url(attr_val), attr_val
-                logger.debug("Detected external Apply button (URL not extractable)")
-                return "external_other", None
+                # Ambiguous "Apply" buttons (e.g., filter UI) can appear without a
+                # resolvable destination URL. Treat as unknown so we avoid storing
+                # false external classifications.
+                logger.debug("Detected Apply button but URL not extractable; classifying as unknown")
+                return "unknown", None
         except Exception:
             pass
 
@@ -813,6 +835,11 @@ class SearchAgent(BaseAgent):
             k.lower()
             for k in settings.get("global_filters", {}).get("exclude_keywords", [])
         ]
+        self._exclude_domains = {
+            d.strip().lower()
+            for d in settings.get("global_filters", {}).get("exclude_domains", [])
+            if d and d.strip()
+        }
 
     async def run_once(self) -> AgentResult:
         page = self._session.page
@@ -863,6 +890,12 @@ class SearchAgent(BaseAgent):
                     # Apply global keyword exclusions
                     if self._is_excluded(details["title"]):
                         self.logger.debug(f"Excluded by keyword filter: {details['title']}")
+                        continue
+                    if self._is_excluded_domain(details.get("external_url")):
+                        self.logger.info(
+                            f"Excluded by domain filter: {details['title']} @ "
+                            f"{details['company']} ({details.get('external_url')})"
+                        )
                         continue
 
                     details["search_query"] = query["name"]
@@ -1046,3 +1079,9 @@ class SearchAgent(BaseAgent):
     def _is_excluded(self, title: str) -> bool:
         title_lower = title.lower()
         return any(kw in title_lower for kw in self._exclude_kw)
+
+    def _is_excluded_domain(self, url: Optional[str]) -> bool:
+        domain = _extract_domain(url)
+        if not domain or not self._exclude_domains:
+            return False
+        return any(_domain_matches_rule(domain, rule) for rule in self._exclude_domains)

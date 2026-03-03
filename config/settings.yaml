@@ -10,6 +10,13 @@ scheduler:
   business_hours_start: 8      # 8 AM local
   business_hours_end: 20       # 8 PM local
 
+browser:
+  start_minimized: true      # best-effort for headed Chromium windows
+
+global_filters:
+  exclude_domains:
+    - remotehunter.com
+
 rate_limits:
   linkedin_page_loads_per_hour: 120
   applications_per_day: 25

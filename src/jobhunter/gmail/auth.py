@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -59,7 +60,15 @@ def get_gmail_service(
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             logger.info("Refreshing expired Gmail token")
-            creds.refresh(Request())
+            try:
+                creds.refresh(Request())
+            except RefreshError as e:
+                # Refresh token was revoked/expired (invalid_grant): fall back to
+                # interactive OAuth so scheduler startup can recover automatically.
+                logger.warning(
+                    f"Gmail token refresh failed ({e}); starting OAuth flow"
+                )
+                creds = _run_oauth_flow(credentials_path)
         else:
             creds = _run_oauth_flow(credentials_path)
 

@@ -1,6 +1,7 @@
 """Persistent Playwright browser context and LinkedIn session management."""
 
 import asyncio
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -53,10 +54,14 @@ class BrowserSession:
         self,
         state_dir: str = "data/browser_state",
         headless: bool = False,
+        start_minimized: bool = False,
+        window_label: Optional[str] = None,
     ) -> None:
         self._state_dir = Path(state_dir)
         self._state_dir.mkdir(parents=True, exist_ok=True)
         self._headless = headless
+        self._start_minimized = start_minimized
+        self._window_label = window_label
 
         self._playwright: Optional[Playwright] = None
         self._browser: Optional[Browser] = None
@@ -67,6 +72,22 @@ class BrowserSession:
 
     async def start(self) -> "BrowserSession":
         """Launch Playwright and open a persistent browser context."""
+        launch_args = [
+            "--disable-blink-features=AutomationControlled",
+            # --no-sandbox disables the network service sandbox and breaks DNS
+            # in headed mode on Linux.  --disable-setuid-sandbox is the correct
+            # replacement: it only drops the setuid privilege requirement.
+            "--disable-setuid-sandbox",
+        ]
+        if self._start_minimized and not self._headless:
+            # Best-effort Chromium hint; behavior depends on desktop/window manager.
+            launch_args.append("--start-minimized")
+
+        window_class = _window_class_from_label(self._window_label)
+        if window_class:
+            # Linux/Wayland/X11 only: helps identify windows in task switcher.
+            launch_args.append(f"--class={window_class}")
+
         self._playwright = await async_playwright().start()
         self._context = await self._playwright.chromium.launch_persistent_context(
             str(self._state_dir),
@@ -75,13 +96,7 @@ class BrowserSession:
             viewport={"width": 1280, "height": 800},
             locale="en-US",
             timezone_id="America/New_York",
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                # --no-sandbox disables the network service sandbox and breaks DNS
-                # in headed mode on Linux.  --disable-setuid-sandbox is the correct
-                # replacement: it only drops the setuid privilege requirement.
-                "--disable-setuid-sandbox",
-            ],
+            args=launch_args,
             ignore_default_args=["--enable-automation"],
         )
         self._context.set_default_timeout(_NAV_TIMEOUT)
@@ -112,7 +127,15 @@ class BrowserSession:
         pages = self._context.pages
         self._page = pages[0] if pages else await self._context.new_page()
 
-        logger.info("Browser session started", extra={"headless": self._headless})
+        logger.info(
+            "Browser session started",
+            extra={
+                "headless": self._headless,
+                "start_minimized": self._start_minimized,
+                "window_label": self._window_label,
+                "window_class": window_class,
+            },
+        )
         return self
 
     async def stop(self) -> None:
@@ -236,3 +259,14 @@ class BrowserSession:
     async def run_warmup(self) -> None:
         """Visit LinkedIn feed and scroll before searching."""
         await warmup_session(self._page)
+
+
+def _window_class_from_label(label: Optional[str]) -> Optional[str]:
+    """Sanitize a user label for Chromium --class on Linux."""
+    if not label:
+        return None
+    cleaned = re.sub(r"[^A-Za-z0-9_-]+", "-", label.strip())
+    cleaned = cleaned.strip("-")
+    if not cleaned:
+        return None
+    return f"jobhunter-{cleaned}"[:63]

@@ -55,6 +55,23 @@ class TestClassifyExternalUrl:
         url = "https://ACME.MyWorkdayJobs.com/jobs"
         assert _classify_external_url(url) == "external_workday"
 
+    def test_adp(self):
+        url = "https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html"
+        assert _classify_external_url(url) == "external_adp"
+
+    def test_oraclecloud(self):
+        url = "https://fa-evxo-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1"
+        assert _classify_external_url(url) == "external_oracle"
+
+    def test_ashby(self):
+        url = "https://jobs.ashbyhq.com/company/123"
+        assert _classify_external_url(url) == "external_ashby"
+
+    def test_paycomonline_stays_other(self):
+        # Paycom-hosted career pages are currently treated as generic external.
+        url = "https://www.paycomonline.net/v4/ats/web.php/jobs/ViewJobDetails"
+        assert _classify_external_url(url) == "external_other"
+
 
 class TestSearchAgentExclusion:
     """Test keyword exclusion logic via the agent's _is_excluded method."""
