@@ -1,0 +1,50 @@
+# .gitleaks.toml — codex (JobHunter active dev)
+# Extends the shared template allowlists with codex-specific entries.
+
+title = "Gitleaks Configuration — codex"
+
+[extend]
+useDefault = true
+
+# ── Global allowlist ──────────────────────────────────────────────────────────
+[allowlist]
+description = "codex false-positive suppression"
+
+regexes = [
+    # Generic placeholders
+    '''(?i)(REPLACE_?ME|YOUR[_-]?KEY|EXAMPLE[_-]?KEY|INSERT[_-]?KEY|YOUR[_-]?SECRET|FAKE[_-]?KEY)''',
+    # Anthropic placeholder patterns in docs / env.example
+    '''sk-ant-api0\d-[A-Za-z0-9_-]{10,}-REPLACE''',
+    # All-zero / all-X dummy values
+    '''[0Xx]{20,}''',
+    # Common test/fixture tokens
+    '''(?i)test[-_]?(token|key|secret|password|credential)''',
+    # Hardcoded fake Fernet key used in test_cli.py monkeypatches
+    # dGVzdGtleXRlc3RrZXl0ZXN0a2V5dGVzdGtleXQ= decodes to "testkeytestkeytestkey..."
+    '''dGVzdGtleXRlc3RrZXl0ZXN0a2V5dGVzdGtleXQ=''',
+]
+
+paths = [
+    # Example / template files
+    '''.env\.example''',
+    '''.env\.sample''',
+    '''.*\.example$''',
+    '''.*\.sample$''',
+    '''.*\.template$''',
+    # Documentation
+    '''(^|/)docs/''',
+    '''(^|/)README''',
+    # Test directories — may contain fixture credentials
+    '''(^|/)tests?/fixtures?/''',
+    '''(^|/)tests?/data/''',
+    '''(^|/)testdata/''',
+    # Resume PDFs stored in data/ — filenames can match patterns but contain no secrets
+    '''(^|/)data/resumes/''',
+    # Virtual environments and package caches
+    '''(^|/)\.venv/''',
+    '''(^|/)venv/''',
+    '''(^|/)vendor/''',
+    '''(^|/)node_modules/''',
+    '''package-lock\.json$''',
+    '''poetry\.lock$''',
+]

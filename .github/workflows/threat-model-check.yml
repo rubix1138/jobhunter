@@ -1,0 +1,63 @@
+name: Threat Model Check
+
+on: [push, pull_request]
+
+jobs:
+  threat-model-check:
+    name: Validate threat model artifacts
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check threat-models directory exists
+        run: |
+          if [[ ! -d "threat-models" ]]; then
+            echo "ERROR: threat-models/ directory not found."
+            echo ""
+            echo "Threat modeling is a required design-time activity."
+            echo "Run the following to create threat model artifacts:"
+            echo "  stride-gpt identify threat-models/<project>-description.md"
+            echo "  Open threat-models/<project>.json in OWASP Threat Dragon"
+            echo ""
+            echo "See: threat-models/README.md"
+            exit 1
+          fi
+          echo "OK: threat-models/ directory found"
+
+      - name: Validate threat model JSON files
+        run: |
+          shopt -s nullglob
+          files=(threat-models/*.json)
+          if [[ ${#files[@]} -eq 0 ]]; then
+            echo "ERROR: No *.json threat model files found in threat-models/"
+            echo ""
+            echo "Create a Threat Dragon model and save it as threat-models/<project>.json"
+            exit 1
+          fi
+          echo "Found ${#files[@]} threat model file(s)"
+          echo ""
+          for f in "${files[@]}"; do
+            python3 -c "
+import json, sys
+path = '$f'
+try:
+    with open(path) as fh:
+        data = json.load(fh)
+    detail = data.get('detail', {})
+    diagrams = detail.get('diagrams', [])
+    threats = sum(
+        len(c.get('threats', []))
+        for d in diagrams
+        for c in d.get('cells', [])
+        if isinstance(c, dict)
+    )
+    title = data.get('summary', {}).get('title', '(no title)')
+    print(f'OK: {path} — title={title!r} diagrams={len(diagrams)} threats={threats}')
+except json.JSONDecodeError as e:
+    print(f'INVALID JSON: {path} — {e}', file=sys.stderr)
+    sys.exit(1)
+"
+          done
+          echo ""
+          echo "All threat model files are valid JSON."

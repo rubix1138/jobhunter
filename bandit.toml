@@ -1,0 +1,6 @@
+[tool.bandit]
+exclude_dirs = ["tests", "test", ".venv", "venv"]
+skips = [
+    "B101",   # assert_used — pytest uses assert heavily; not a prod issue
+    "B311",   # random — not used for cryptographic purposes here
+]

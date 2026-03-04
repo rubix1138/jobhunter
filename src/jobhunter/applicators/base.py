@@ -34,7 +34,7 @@ def _options_hash(options: Optional[list[str]]) -> str:
     """Stable 8-char hash of sorted option list; '' for text/textarea fields."""
     if not options:
         return ''
-    return hashlib.md5(','.join(sorted(options)).encode()).hexdigest()[:8]
+    return hashlib.md5(','.join(sorted(options)).encode(), usedforsecurity=False).hexdigest()[:8]
 
 
 def _extract_host(url: Optional[str]) -> str:

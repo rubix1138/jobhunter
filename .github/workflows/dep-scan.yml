@@ -1,0 +1,28 @@
+name: Dependency Scan
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  # ── pip-audit: known CVEs in Python dependencies ─────────────────────────────
+  pip-audit:
+    name: pip-audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install project dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Run pip-audit
+        run: pip-audit
+        # Exits non-zero if any installed package has a known CVE.
+        # Fix: upgrade the affected package and update pyproject.toml.

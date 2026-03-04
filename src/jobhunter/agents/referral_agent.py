@@ -148,7 +148,7 @@ async def _fetch_page_text(url: str, browser_session=None) -> str:
                 )
             },
         )
-        with urllib_request.urlopen(req, timeout=30) as resp:
+        with urllib_request.urlopen(req, timeout=30) as resp:  # nosec B310 — URL pre-validated by _validate_referral_url + _assert_public_hostname
             raw = resp.read().decode("utf-8", errors="replace")
         return _strip_html(raw)
 

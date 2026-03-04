@@ -499,6 +499,21 @@ LinkedIn detection operates at multiple layers; the stack addresses each:
 - Log sanitization filter to redact passwords/tokens
 - Auto-generated passwords for Workday accounts: 20+ chars, mixed character classes
 
+### CI/CD Security Pipeline
+
+Five-layer automated security scanning applied to every push/PR:
+
+| Layer | Tools | Enforcement |
+|-------|-------|-------------|
+| Secrets | Gitleaks v8.30.0 + TruffleHog v3.93.6 | Pre-commit (blocks commit) + CI |
+| SAST | Bandit 1.8.3 (pre-commit + CI) + Semgrep 1.153.1 (CI) + CodeQL (CI) | Bandit blocks commit; Semgrep/CodeQL CI-only |
+| Dependencies | pip-audit 2.10.0 + Dependabot | CI-only + GitHub-native auto-update PRs |
+| Threat modeling | STRIDE-GPT CLI + OWASP Threat Dragon | Human-driven; CI validates artifacts exist |
+| SBOM | Syft 1.42.1 (CycloneDX JSON) + Grype 0.109.0 (CVE scan) | CI-only; `--fail-on high` |
+
+Workflows: `.github/workflows/secrets-scan.yml`, `sast.yml`, `dep-scan.yml`, `threat-model-check.yml`, `sbom.yml`
+On-demand local scans: `~/scripts/secrets-scan.sh`, `sast-scan.sh`, `dep-scan.sh`, `sbom-scan.sh`
+
 ---
 
 ## Estimated Daily Claude API Cost: $5-12

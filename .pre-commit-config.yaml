@@ -1,0 +1,38 @@
+# .pre-commit-config.yaml — Secrets scanning + SAST hooks
+# Install: pre-commit install
+# Bypass (emergency only): SKIP=gitleaks,trufflehog,bandit git commit
+
+repos:
+  # ── Gitleaks: regex pattern matching against staged files + recent commits ──
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks
+        name: Gitleaks (detect secrets)
+        # Uses .gitleaks.toml in the repo root automatically
+
+  # ── TruffleHog: entropy + live verification of staged files ─────────────────
+  - repo: local
+    hooks:
+      - id: trufflehog
+        name: TruffleHog (verify secrets)
+        language: system
+        entry: trufflehog filesystem --only-verified --fail --no-update
+        pass_filenames: true
+        stages: [pre-commit]
+        # --only-verified: only flag secrets that are confirmed valid against provider APIs
+        # This keeps false-positive rate near zero
+
+  # ── Bandit: Python AST-based security checks ─────────────────────────────
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.8.3
+    hooks:
+      - id: bandit
+        args:
+          - "-c"
+          - "bandit.toml"
+          - "--severity-level"
+          - "medium"
+          - "--confidence-level"
+          - "medium"
+        additional_dependencies: ["bandit[toml]"]

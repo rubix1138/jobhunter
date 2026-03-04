@@ -1,6 +1,6 @@
 # STATUS
 
-Last updated: 2026-03-03
+Last updated: 2026-03-03 (security pipeline)
 
 ## Current State
 
@@ -21,6 +21,20 @@ Last updated: 2026-03-03
 - Apply dry-run metrics/reporting corrected:
   - generated-material count is tracked separately from submitted applications
   - scheduler/base summaries now report dry-run generation counts correctly
+
+## Security Pipeline (added 2026-03-03)
+
+Five-layer CI/CD security scanning fully installed:
+- **Secrets**: Gitleaks + TruffleHog (pre-commit + CI)
+- **SAST**: Bandit (pre-commit + CI) + Semgrep + CodeQL (CI)
+- **Deps**: pip-audit + Dependabot (CI + GitHub-native)
+- **Threat model**: STRIDE-GPT + Threat Dragon (human-driven; CI validates artifacts)
+- **SBOM**: Syft + Grype (CI; `--fail-on high`; SBOM uploaded as workflow artifact per run)
+
+New files: `.gitleaks.toml`, `bandit.toml`, `.pre-commit-config.yaml`, `.github/workflows/{secrets-scan,sast,dep-scan,threat-model-check,sbom}.yml`, `.github/dependabot.yml`, `threat-models/`
+`.gitignore` updated: added `sbom/`
+
+---
 
 ## Key Files Changed (Recent)
 
