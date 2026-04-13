@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Automated job search and application system"
 requires-python = ">=3.12"
 dependencies = [
-    "anthropic>=0.40.0",
+    "anthropic>=0.94.0",
     "playwright>=1.49.0",
     "patchright>=1.0.0",
     "playwright-stealth>=2.0.0",
