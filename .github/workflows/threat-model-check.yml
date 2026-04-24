@@ -41,26 +41,14 @@ jobs:
           echo "Found ${#files[@]} threat model file(s)"
           echo ""
           for f in "${files[@]}"; do
-            python3 -c "
-import json, sys
-path = '$f'
-try:
-    with open(path) as fh:
-        data = json.load(fh)
-    detail = data.get('detail', {})
-    diagrams = detail.get('diagrams', [])
-    threats = sum(
-        len(c.get('threats', []))
-        for d in diagrams
-        for c in d.get('cells', [])
-        if isinstance(c, dict)
-    )
-    title = data.get('summary', {}).get('title', '(no title)')
-    print(f'OK: {path} — title={title!r} diagrams={len(diagrams)} threats={threats}')
-except json.JSONDecodeError as e:
-    print(f'INVALID JSON: {path} — {e}', file=sys.stderr)
-    sys.exit(1)
-"
+            if ! python3 -m json.tool "$f" > /dev/null; then
+              echo "INVALID JSON: $f" >&2
+              exit 1
+            fi
+            title=$(jq -r '.summary.title // "(no title)"' "$f")
+            diagrams=$(jq '(.detail.diagrams // []) | length' "$f")
+            threats=$(jq '[.detail.diagrams[]?.cells[]?.threats[]?] | length' "$f")
+            echo "OK: $f — title=\"$title\" diagrams=$diagrams threats=$threats"
           done
           echo ""
           echo "All threat model files are valid JSON."
