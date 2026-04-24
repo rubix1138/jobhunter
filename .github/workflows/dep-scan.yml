@@ -18,8 +18,10 @@ jobs:
           persist-credentials: false
 
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
-        with:
-          python-version: "3.12"
+        # Do not set python-version here — it triggers auto-venv activation
+        # which fails when the workflow has no project venv yet. Let `uv` pick
+        # a Python for each subsequent command; `uv export` and `uvx pip-audit`
+        # both run against any managed Python.
 
       - name: Export locked requirements
         run: uv export --no-hashes --no-header --frozen --no-emit-project > /tmp/requirements.txt

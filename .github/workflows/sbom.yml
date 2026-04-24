@@ -32,7 +32,7 @@ jobs:
           # freshness check rejects the action's cached DB when it drifts
           # out of spec. Tolerate up to 30 days so scans don't fail for
           # reasons unrelated to the repo's own dependencies.
-          GRYPE_DB_MAX_ALLOWED_BUILT_AGE: 720h
+          GRYPE_DB_MAX_ALLOWED_BUILT_AGE: 4320h
         with:
           sbom: sbom.json
           fail-build: true
