@@ -26,7 +26,7 @@ jobs:
           upload-artifact: true
           artifact-name: sbom-${{ github.sha }}
       - name: Scan SBOM with Grype
-        uses: anchore/scan-action@3343887d815d7b07465f6fdcd395bd66508d486a # v3
+        uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
         env:
           # anchore/scan-action@v3 bundles a grype version whose 5-day DB
           # freshness check rejects the action's cached DB when it drifts
