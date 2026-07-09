@@ -46,3 +46,6 @@ addopts = "-v --tb=short"
 
 [tool.hatch.metadata]
 allow-direct-references = true
+
+[tool.uv]
+exclude-newer = "P7D"

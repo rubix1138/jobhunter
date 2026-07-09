@@ -3,26 +3,30 @@ name: Dependency Scan
 on:
   push:
   pull_request:
+  schedule:
+    - cron: '0 7 * * 1'
 
 jobs:
-  # ── pip-audit: known CVEs in Python dependencies ─────────────────────────────
   pip-audit:
     name: pip-audit
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          python-version: "3.12"
+          persist-credentials: false
 
-      - name: Install project dependencies
-        run: pip install -e ".[dev]"
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        # Do not set python-version here — it triggers auto-venv activation
+        # which fails when the workflow has no project venv yet. Let `uv` pick
+        # a Python for each subsequent command; `uv export` and `uvx pip-audit`
+        # both run against any managed Python.
 
-      - name: Install pip-audit
-        run: pip install pip-audit
+      - name: Export locked requirements
+        run: uv export --no-hashes --no-header --frozen --no-emit-project > /tmp/requirements.txt
 
       - name: Run pip-audit
-        run: pip-audit
-        # Exits non-zero if any installed package has a known CVE.
-        # Fix: upgrade the affected package and update pyproject.toml.
+        run: uvx pip-audit --requirement /tmp/requirements.txt
+        # Exits non-zero if any locked dependency has a known CVE.
+        # Fix: run 'uv lock --upgrade-package <pkg>' and update uv.lock.
