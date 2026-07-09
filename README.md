@@ -1,143 +1,70 @@
 # JobHunter
 
-Automated job search + application assistant built around LinkedIn discovery, external ATS form filling, Gmail triage, and a local SQLite audit trail.
+Automated job search and application assistant. This repo remains an independent
+system and is also exposed through Alice's gateway as a bounded specialist.
 
-## What It Does
+## Purpose
 
-- Runs three agents:
-  - `search` agent to discover and score jobs
-  - `apply` agent to submit applications (LinkedIn + external ATS)
-  - `email` agent to classify and process inbox updates
-- Stores everything in SQLite (`jobs`, `applications`, `email_log`, `agent_runs`, `llm_usage`, etc.)
-- Generates tailored referral materials (`prepare-referral`)
-- Supports manual-review queues for blocked/captcha/SSO edge cases
-- Captures failure artifacts (`data/logs/failures/*.png|*.txt`) for debugging
+- Search LinkedIn for jobs
+- Score and queue opportunities
+- Apply on LinkedIn and external ATS flows
+- Process Gmail updates
+- Generate referral materials
+- Maintain a manual-review queue for blocked or risky cases
 
-## Recent Improvements (March 2026)
+## Important Paths
 
-- Stale `agent_runs` auto-reconciliation (old `running` -> `error`) at command startup
-- LinkedIn required-field loop remediation for sticky validation errors
-- Domain blacklist support (for example `remotehunter.com`) during search/apply
-- Gmail auth auto-recovery when refresh token is revoked (`invalid_grant`)
-- Email-classifier parser hardening for fenced/truncated JSON responses
-- Referral fetch hardening:
-  - `prepare-referral` now enforces `https://` only
-  - blocks localhost/non-public targets to reduce SSRF/local file abuse
-- Prompt-injection hardening:
-  - untrusted job/email text is explicitly delimited in prompts
-  - recruiter auto-reply now also requires minimum classification confidence
-- Recruiter auto-reply trust hardening:
-  - sender domain must match linked job/domain signals
-  - free-email recruiter senders are blocked by default
-- QA cache poisoning mitigation:
-  - cache keys are now scoped by job domain/company context
-- Form safety:
-  - removed unsafe global radio fallback (`Yes/No` broad clicks)
-- Export/output safety:
-  - `review-packet --csv` now sanitizes spreadsheet formula cells
-  - terminal review output strips ANSI/control characters
-- Apply dry-run reporting fix:
-  - dry-run counters now track/generated materials separately from submitted applications
-  - CLI output correctly reports generated count
-- Browser UX controls:
-  - optional minimized Chromium launch
-  - per-run window labeling (`--class=jobhunter-...` on Linux)
+- Repo: `/mnt/ai/code/jobhunter`
+- Virtualenv: `/mnt/ai/code/jobhunter/.venv`
+- Env template: `/mnt/ai/code/jobhunter/.env.example`
+- Config dir: `/mnt/ai/code/jobhunter/config`
+- Profile dir: `/mnt/ai/code/jobhunter/profile`
+- Runtime data: `/mnt/ai/code/jobhunter/data`
+- Tests: `/mnt/ai/code/jobhunter/tests`
+- Local operator hints: `/mnt/ai/code/jobhunter/.claude`
 
-## Repository Layout
+## Required Runtime Inputs
 
-- `src/jobhunter/` - app code
-- `tests/` - pytest suite
-- `config/search_queries.yaml` - LinkedIn queries
-- `config/settings.yaml` - runtime config (limits, thresholds, browser, filters)
-- `profile/user_profile.yaml` - candidate profile + application defaults
-- `data/` - runtime artifacts (DB, logs, browser state, resumes)
-
-## Requirements
-
-- Python `>=3.12` (tested with 3.13)
-- Chromium via Playwright/Patchright
-- API credentials:
-  - Anthropic API key
-  - Gmail OAuth client credentials
-
-## Setup
-
-1. Create and activate virtual environment.
-2. Install package and dependencies.
-3. Install Chromium for Playwright.
-4. Configure `.env`.
-5. Copy/edit profile + query/config files.
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .[dev]
-python -m playwright install chromium
-cp .env.example .env
-```
-
-Required runtime files:
-
-- `.env` (API keys + paths)
+- `.env`
 - `profile/user_profile.yaml`
 - `config/search_queries.yaml`
 - `config/settings.yaml`
-- `data/gmail_credentials.json` (OAuth client JSON from Google Cloud)
+- `data/gmail_credentials.json`
 
-## CLI Commands
-
-Core:
+## Main Commands
 
 ```bash
 jobhunter init
 jobhunter status
 jobhunter run
 jobhunter search-now [--max-queries N] [--max-pages N]
-jobhunter apply-now [--apply-type TYPE] [--dry-run] [--review] [--reprobe-blocked-workday]
+jobhunter apply-now [--apply-type TYPE] [--dry-run] [--review]
 jobhunter check-email
-jobhunter daily-summary
-```
-
-Operations / review:
-
-```bash
 jobhunter review-queue [--limit N]
-jobhunter review-packet [--limit N] [--output PATH] [--csv] [--open]
-jobhunter review-resolve --app-id ID --action retry|skip|resolved
-jobhunter qa-log [--app-id ID]
-jobhunter platform-stats
-jobhunter prepare-referral --url URL [--title TITLE] [--company COMPANY] [--output-dir DIR]
-```
-
-## Browser Behavior (Multiple Agents)
-
-`config/settings.yaml`:
-
-```yaml
-browser:
-  start_minimized: true
-```
-
-Window labeling is automatic and run-specific (for example `search-now-pid12345`) and is passed to Chromium class on Linux (`jobhunter-search-now-pid12345`) to make windows easier to identify.
-
-## Testing
-
-```bash
+jobhunter review-packet [--limit N] [--output PATH] [--csv]
 .venv/bin/pytest -q
 ```
 
-Current full-suite baseline: `492 passed`.
+## Current Gateway Integration
 
-Targeted suites:
+The assistant gateway currently exposes:
 
-```bash
-.venv/bin/pytest tests/test_email -q
-.venv/bin/pytest tests/test_scheduler -q
-.venv/bin/pytest tests/test_apply -q
-```
+- status via `.venv/bin/jobhunter status`
+- operator inbox from `review-queue --limit 10`
+- bounded actions:
+  - `search-now --max-queries 1 --max-pages 1`
+  - `check-email`
+  - `apply-now --dry-run --review`
 
-## Notes
+## Operational Notes
 
-- LinkedIn login is manual on first run; browser session state persists in `data/browser_state/`.
-- Gmail OAuth opens a local browser flow when needed and refreshes tokens automatically.
-- This repo may contain local runtime data in `data/`; do not commit secrets/tokens.
+- Browser automation is Playwright/Patchright-based
+- Data under `data/` is operational state, not design docs
+- This repo is the most stateful specialist in the stack; do not treat runtime
+  data, review queues, or browser state as disposable without checking impact
+
+## Related Docs
+
+- Box entrypoint: `/mnt/ai/start.md`
+- Assistant gateway: `/mnt/ai/code/assistant/README.md`
+- Historical plans: `/mnt/ai/plans`

@@ -1,13 +1,14 @@
 """Gmail OAuth2 flow and token management."""
 
 import os
+import sys
 from pathlib import Path
 from typing import Optional
 
 from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
+from google_auth_oauthlib.flow import InstalledAppFlow, WSGITimeoutError
 from googleapiclient.discovery import build
 
 from ..utils.logging import get_logger
@@ -112,6 +113,26 @@ def _run_oauth_flow(credentials_path: str) -> Credentials:
         "  and grant the requested permissions.\n"
     )
     flow = InstalledAppFlow.from_client_secrets_file(str(creds_path), _SCOPES)
-    creds = flow.run_local_server(port=0, open_browser=True)
+    try:
+        creds = flow.run_local_server(port=0, open_browser=True, timeout_seconds=300)
+    except WSGITimeoutError:
+        if not sys.stdin.isatty():
+            raise
+
+        print(
+            "\n[JobHunter] Local OAuth callback was not captured.\n"
+            "  Copy the full final localhost URL from the browser address bar\n"
+            "  and paste it below.\n"
+        )
+        authorization_response = input("Redirect URL: ").strip()
+        if not authorization_response:
+            raise
+        if authorization_response.startswith("http://"):
+            authorization_response = authorization_response.replace(
+                "http://", "https://", 1
+            )
+        flow.fetch_token(authorization_response=authorization_response)
+        creds = flow.credentials
+
     logger.info("Gmail OAuth2 flow completed")
     return creds
